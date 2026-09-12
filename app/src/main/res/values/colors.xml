@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="text_primary">#212121</color>
+    <color name="text_secondary">#757575</color>
+    <color name="white">#FFFFFF</color>
+    <color name="primary">#2196F3</color>
+    <color name="primary_dark">#1976D2</color>
+    <color name="accent">#FF9800</color>
+    <color name="background">#FAFAFA</color>
+    <color name="surface">#FFFFFF</color>
+    <color name="error">#F44336</color>
+    <color name="purple_200">#FFBB86FC</color>
+    <color name="purple_500">#FF6200EE</color>
+    <color name="purple_700">#FF3700B3</color>
+    <color name="teal_200">#FF03DAC5</color>
+    <color name="teal_700">#FF018786</color>
+    <color name="black">#FF000000</color>
+    <color name="eink_background">#FFFFFFFF</color>
+    <color name="eink_text">#FF000000</color>
+    <color name="eink_border">#FF666666</color>
+    <color name="eink_button">#FFE0E0E0</color>
+    <color name="ic_launcher_background">#FFFFFF</color>
+
+    <!-- Custom colors for status text -->
+    <color name="text_success">#4CAF50</color> <!-- Green -->
+    <color name="text_error">#F44336</color>   <!-- Red -->
+    <color name="text_warning">#FF9800</color> <!-- Orange -->
+    <color name="text_default">#333333</color> <!-- Dark Gray -->
+    <color name="text_hint">#999999</color>    <!-- Light Gray -->
+    <color name="background_color">#FFFFFF</color> <!-- White Background -->
+</resources>
