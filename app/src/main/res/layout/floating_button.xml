@@ -1,14 +1,38 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Button xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="56dp"
-    android:layout_height="56dp"
-    android:text="@string/ai_assistant_short"
-    android:textSize="16sp"
-    android:textColor="#000000"
-    android:background="@drawable/floating_button_background"
-    android:elevation="0dp"
-    android:stateListAnimator="@null"
-    android:clickable="true"
-    android:focusable="true"
-    android:foreground="@null"
-    android:backgroundTint="@null" />
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="48dp"
+    android:layout_height="96dp"
+    android:orientation="vertical"
+    android:background="#FFFFFF"
+    android:padding="1dp">
+
+    <Button
+        android:id="@+id/aiFloatingButton"
+        android:layout_width="46dp"
+        android:layout_height="46dp"
+        android:text="@string/ai_assistant_short"
+        android:textSize="15sp"
+        android:textColor="#000000"
+        android:background="@drawable/floating_button_background"
+        android:elevation="0dp"
+        android:stateListAnimator="@null"
+        android:minWidth="0dp"
+        android:minHeight="0dp"
+        android:padding="0dp" />
+
+    <Button
+        android:id="@+id/translateFloatingButton"
+        android:layout_width="46dp"
+        android:layout_height="46dp"
+        android:layout_marginTop="2dp"
+        android:text="@string/dictionary_short"
+        android:textSize="18sp"
+        android:textColor="#000000"
+        android:background="@drawable/floating_button_background"
+        android:elevation="0dp"
+        android:stateListAnimator="@null"
+        android:minWidth="0dp"
+        android:minHeight="0dp"
+        android:padding="0dp" />
+
+</LinearLayout>

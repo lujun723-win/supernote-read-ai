@@ -25,4 +25,11 @@ class CropAreaCalculatorTest {
 
         assertNull(area)
     }
+
+    @Test
+    fun keepsExactSelectionWhenPaddingIsZero() {
+        val area = CropAreaCalculator.calculate(100, 200, 300, 500, 1000, 1200, 0)
+
+        assertEquals(CropArea(100, 200, 300, 500), area)
+    }
 }

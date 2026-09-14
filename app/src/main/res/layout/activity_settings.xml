@@ -341,6 +341,95 @@
             android:layout_marginTop="16dp"
             android:layout_marginBottom="16dp" />
 
+        <!-- 离线字典 -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/offline_dictionary_title"
+            android:textSize="18sp"
+            android:textColor="#000000"
+            android:textStyle="bold"
+            android:paddingBottom="8dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/dictionary_capture_mode_title"
+            android:textSize="16sp"
+            android:textColor="#000000"
+            android:textStyle="bold"
+            android:paddingBottom="4dp" />
+
+        <Spinner
+            android:id="@+id/dictionaryCaptureModeSpinner"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:background="#F5F5F5"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/ocr_language_title"
+            android:textSize="16sp"
+            android:textColor="#000000"
+            android:textStyle="bold"
+            android:paddingBottom="4dp" />
+
+        <Spinner
+            android:id="@+id/ocrLanguageSpinner"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:background="#F5F5F5"
+            android:layout_marginBottom="8dp" />
+
+        <Button
+            android:id="@+id/btnInstallBundledEcdict"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:text="@string/install_bundled_ecdict"
+            android:textSize="16sp"
+            android:textColor="#000000"
+            android:background="#E8F4FD"
+            android:layout_marginBottom="8dp" />
+
+        <Button
+            android:id="@+id/btnImportStarDict"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:text="@string/import_stardict"
+            android:textSize="16sp"
+            android:textColor="#000000"
+            android:background="#E8F4FD"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:id="@+id/tvDictionaryStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/no_dictionary_imported"
+            android:textSize="14sp"
+            android:textColor="#333333"
+            android:padding="8dp"
+            android:background="#F8F8F8" />
+
+        <Button
+            android:id="@+id/btnClearDictionaries"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:text="@string/clear_dictionaries"
+            android:textSize="16sp"
+            android:textColor="#000000"
+            android:background="#F0F0F0"
+            android:layout_marginTop="8dp" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#000000"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="16dp" />
+
         <!-- 重置设置 -->
         <TextView
             android:layout_width="match_parent"

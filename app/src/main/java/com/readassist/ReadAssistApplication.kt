@@ -9,6 +9,7 @@ import androidx.multidex.MultiDex
 import com.readassist.database.AppDatabase
 import com.readassist.repository.ChatRepository
 import com.readassist.repository.GeminiRepository
+import com.readassist.dictionary.OfflineDictionaryManager
 import com.readassist.utils.PreferenceManager
 import com.readassist.utils.LanguageManager
 
@@ -22,6 +23,7 @@ class ReadAssistApplication : Application() {
     lateinit var preferenceManager: PreferenceManager
     lateinit var database: AppDatabase
     lateinit var chatRepository: ChatRepository
+    lateinit var offlineDictionaryManager: OfflineDictionaryManager
 
     // 全局仓库实例
     lateinit var geminiRepository: GeminiRepository
@@ -54,6 +56,7 @@ class ReadAssistApplication : Application() {
         // 初始化仓库
         geminiRepository = GeminiRepository(preferenceManager)
         chatRepository = ChatRepository(database.chatDao(), geminiRepository)
+        offlineDictionaryManager = OfflineDictionaryManager(applicationContext)
             Log.d(TAG, "✅ Repositories initialized")
 
             Log.d(TAG, "🎉 Application onCreate completed successfully")

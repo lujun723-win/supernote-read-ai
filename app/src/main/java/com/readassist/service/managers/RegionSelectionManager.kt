@@ -19,13 +19,18 @@ import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
 
+data class RegionSelection(
+    val bounds: Rect,
+    val path: Path
+)
+
 class RegionSelectionManager(
     private val context: Context,
     private val windowManager: WindowManager,
     private val callbacks: Callbacks
 ) {
     interface Callbacks {
-        fun onRegionSelected(bounds: Rect)
+        fun onRegionSelected(selection: RegionSelection)
         fun onRegionSelectionCancelled()
     }
 
@@ -36,9 +41,9 @@ class RegionSelectionManager(
 
         val view = RegionSelectionView(
             context = context,
-            onSelected = { bounds ->
+            onSelected = { selection ->
                 dismiss()
-                callbacks.onRegionSelected(bounds)
+                callbacks.onRegionSelected(selection)
             },
             onCancelled = {
                 dismiss()
@@ -92,7 +97,7 @@ class RegionSelectionManager(
 
 private class RegionSelectionView(
     context: Context,
-    private val onSelected: (Rect) -> Unit,
+    private val onSelected: (RegionSelection) -> Unit,
     private val onCancelled: () -> Unit
 ) : View(context) {
     private val density = resources.displayMetrics.density
@@ -170,7 +175,8 @@ private class RegionSelectionView(
                 addPoint(event.x, event.y)
                 drawing = false
 
-                val minimumSize = 48f * density
+                // 只过滤近似点击的误触；单个英文单词的圈选高度通常远小于 48dp。
+                val minimumSize = 8f * density
                 if (selectedBounds.width() < minimumSize || selectedBounds.height() < minimumSize) {
                     selectionPath.reset()
                     selectedBounds.setEmpty()
@@ -183,12 +189,16 @@ private class RegionSelectionView(
                     return true
                 }
 
+                selectionPath.close()
                 onSelected(
-                    Rect(
-                        floor(selectedBounds.left).toInt(),
-                        floor(selectedBounds.top).toInt(),
-                        ceil(selectedBounds.right).toInt(),
-                        ceil(selectedBounds.bottom).toInt()
+                    RegionSelection(
+                        bounds = Rect(
+                            floor(selectedBounds.left).toInt(),
+                            floor(selectedBounds.top).toInt(),
+                            ceil(selectedBounds.right).toInt(),
+                            ceil(selectedBounds.bottom).toInt()
+                        ),
+                        path = Path(selectionPath)
                     )
                 )
             }

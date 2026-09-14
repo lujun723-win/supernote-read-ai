@@ -4,7 +4,10 @@ import android.app.*
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.hardware.display.DisplayManager
@@ -29,6 +32,7 @@ import com.readassist.utils.DeviceUtils
 import com.readassist.utils.DeviceType
 import com.readassist.utils.PreferenceManager
 import com.readassist.utils.CropAreaCalculator
+import com.readassist.utils.HorizontalInkSegmenter
 import kotlinx.coroutines.*
 import kotlinx.coroutines.selects.select
 import java.io.ByteArrayOutputStream
@@ -269,8 +273,13 @@ class ScreenshotService : Service() {
     /**
      * 执行截屏 - 使用PixelCopy方案，直接保存到系统截屏目录
      */
-    fun captureScreen(cropBounds: Rect? = null) {
+    fun captureScreen(
+        cropBounds: Rect? = null,
+        cropPaddingDp: Int = 16,
+        cropMask: Path? = null
+    ) {
         Log.d(TAG, "=== captureScreen() PixelCopy方案开始 ===")
+        val requestedCropMask = cropMask?.let(::Path)
 
         // 确保MediaProjection可用，如果需要则重新创建
         if (!ensureMediaProjectionReady()) {
@@ -284,7 +293,7 @@ class ScreenshotService : Service() {
                 Log.d(TAG, "🎯 使用PixelCopy方案进行截屏...")
 
                 // 使用PixelCopy + 直接保存到系统目录的方案
-                val bitmap = captureWithPixelCopyToFile(cropBounds)
+                val bitmap = captureWithPixelCopyToFile(cropBounds, cropPaddingDp, requestedCropMask)
 
                 if (bitmap != null) {
                     Log.d(TAG, "✅ PixelCopy截屏成功，尺寸: ${bitmap.width}x${bitmap.height}")
@@ -344,7 +353,11 @@ class ScreenshotService : Service() {
      * 使用PixelCopy方案截屏并直接保存到系统目录
      * 这样FileObserver能统一监控到文件变化
      */
-    private suspend fun captureWithPixelCopyToFile(cropBounds: Rect?): Bitmap? {
+    private suspend fun captureWithPixelCopyToFile(
+        cropBounds: Rect?,
+        cropPaddingDp: Int,
+        cropMask: Path?
+    ): Bitmap? {
         return withContext(Dispatchers.IO) {
             try {
                 Log.d(TAG, "🎯 开始PixelCopy + VirtualDisplay截屏...")
@@ -460,7 +473,7 @@ class ScreenshotService : Service() {
                 Log.d(TAG, "✅ PixelCopy截屏成功: ${bitmap.width}x${bitmap.height}")
 
                 val outputBitmap = if (cropBounds != null) {
-                    val padding = (16 * resources.displayMetrics.density).toInt()
+                    val padding = (cropPaddingDp * resources.displayMetrics.density).toInt()
                     val area = CropAreaCalculator.calculate(
                         left = cropBounds.left,
                         top = cropBounds.top,
@@ -483,8 +496,49 @@ class ScreenshotService : Service() {
                         area.height
                     )
                     bitmap.recycle()
-                    Log.d(TAG, "✅ 区域裁剪完成: ${cropped.width}x${cropped.height}")
-                    cropped
+                    val masked = if (cropMask != null) {
+                        val output = Bitmap.createBitmap(
+                            cropped.width,
+                            cropped.height,
+                            Bitmap.Config.ARGB_8888
+                        )
+                        val localMask = Path(cropMask).apply {
+                            offset(-area.left.toFloat(), -area.top.toFloat())
+                        }
+                        val maskBitmap = Bitmap.createBitmap(
+                            cropped.width,
+                            cropped.height,
+                            Bitmap.Config.ARGB_8888
+                        )
+                        Canvas(maskBitmap).apply {
+                            drawColor(Color.BLACK)
+                            drawPath(
+                                localMask,
+                                Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                                    color = Color.WHITE
+                                    style = Paint.Style.FILL
+                                }
+                            )
+                        }
+                        Canvas(output).apply {
+                            drawColor(Color.WHITE)
+                            save()
+                            clipPath(localMask)
+                            drawBitmap(cropped, 0f, 0f, null)
+                            restore()
+                        }
+                        cropped.recycle()
+                        removeBoundaryWordFragments(output, maskBitmap)
+                        maskBitmap.recycle()
+                        output
+                    } else {
+                        cropped
+                    }
+                    Log.d(
+                        TAG,
+                        "✅ 区域裁剪完成: ${masked.width}x${masked.height}, 遮罩=${cropMask != null}"
+                    )
+                    masked
                 } else {
                     bitmap
                 }
@@ -700,6 +754,100 @@ class ScreenshotService : Service() {
             Log.e(TAG, "Failed to convert image to bitmap", e)
             null
         }
+    }
+
+    private fun removeBoundaryWordFragments(bitmap: Bitmap, maskBitmap: Bitmap) {
+        val width = bitmap.width
+        val height = bitmap.height
+        val pixels = IntArray(width * height)
+        val maskPixels = IntArray(width * height)
+        bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+        maskBitmap.getPixels(maskPixels, 0, width, 0, 0, width, height)
+
+        val inkColumns = BooleanArray(width)
+        for (x in 0 until width) {
+            for (y in 0 until height) {
+                if (isDarkPixel(pixels[y * width + x])) {
+                    inkColumns[x] = true
+                    break
+                }
+            }
+        }
+
+        val segments = HorizontalInkSegmenter.segment(
+            inkColumns,
+            minimumBlankColumns = maxOf(3, height / 16)
+        )
+        if (segments.size < 2) return
+
+        val boundaryRadius = maxOf(1, height / 40)
+        val candidates = linkedSetOf(segments.first(), segments.last())
+        val clipped = candidates.filter { segment ->
+            segmentTouchesMaskBoundary(
+                segment = segment,
+                pixels = pixels,
+                maskPixels = maskPixels,
+                width = width,
+                height = height,
+                radius = boundaryRadius
+            )
+        }
+        if (clipped.isEmpty()) return
+
+        val paint = Paint().apply {
+            color = Color.WHITE
+            style = Paint.Style.FILL
+        }
+        Canvas(bitmap).apply {
+            clipped.forEach { segment ->
+                drawRect(
+                    segment.first.toFloat(),
+                    0f,
+                    (segment.last + 1).toFloat(),
+                    height.toFloat(),
+                    paint
+                )
+            }
+        }
+        Log.d(TAG, "✅ 已按空白边界清除 ${clipped.size} 个截断词块")
+    }
+
+    private fun segmentTouchesMaskBoundary(
+        segment: IntRange,
+        pixels: IntArray,
+        maskPixels: IntArray,
+        width: Int,
+        height: Int,
+        radius: Int
+    ): Boolean {
+        for (x in segment) {
+            for (y in 0 until height) {
+                if (!isDarkPixel(pixels[y * width + x])) continue
+                for (offsetX in -radius..radius) {
+                    for (offsetY in -radius..radius) {
+                        val nearbyX = x + offsetX
+                        val nearbyY = y + offsetY
+                        if (nearbyX !in 0 until width || nearbyY !in 0 until height) {
+                            return true
+                        }
+                        if (Color.red(maskPixels[nearbyY * width + nearbyX]) < 128) {
+                            return true
+                        }
+                    }
+                }
+            }
+        }
+        return false
+    }
+
+    private fun isDarkPixel(color: Int): Boolean {
+        if (Color.alpha(color) == 0) return false
+        val luminance = (
+            Color.red(color) * 299 +
+                Color.green(color) * 587 +
+                Color.blue(color) * 114
+            ) / 1000
+        return luminance < 200
     }
 
     private fun stopScreenCapture() {

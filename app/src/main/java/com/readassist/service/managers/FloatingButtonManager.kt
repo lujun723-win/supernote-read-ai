@@ -1,7 +1,6 @@
 package com.readassist.service.managers
 
 import android.content.Context
-import android.graphics.Color
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.Handler
@@ -13,9 +12,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.Button
-import android.content.res.ColorStateList
 import com.readassist.R
-import com.readassist.ReadAssistApplication
 import kotlin.math.pow
 import kotlin.math.sqrt
 
@@ -30,7 +27,8 @@ class FloatingButtonManager(
 ) {
     companion object {
         private const val TAG = "FloatingButtonManager"
-        private const val FLOATING_BUTTON_SIZE = 45 // dp
+        private const val FLOATING_BUTTON_WIDTH = 48 // dp
+        private const val FLOATING_BUTTON_HEIGHT = 96 // dp
         private const val DOUBLE_TAP_TIMEOUT_MS = 800L
     }
 
@@ -38,15 +36,19 @@ class FloatingButtonManager(
      * 悬浮按钮回调接口
      */
     interface FloatingButtonCallbacks {
-        fun onFloatingButtonClick()
-        fun onFloatingButtonDoubleClick()
+        fun onAiButtonClick()
+        fun onAiButtonDoubleClick()
+        fun onDictionaryButtonClick()
+        fun onDictionaryButtonDoubleClick()
     }
 
     // 视图和布局参数
     private var floatingButton: View? = null
+    private var aiButton: Button? = null
+    private var dictionaryButton: Button? = null
     private var floatingButtonParams: WindowManager.LayoutParams? = null
     private val tapHandler = Handler(Looper.getMainLooper())
-    private var pendingSingleTap: Runnable? = null
+    private val pendingSingleTaps = mutableMapOf<View, Runnable>()
 
     // 状态变量
     private var isButtonMoved = false
@@ -64,20 +66,21 @@ class FloatingButtonManager(
         if (floatingButton != null) return
 
         try {
-            // 判断是否为掌阅设备，动态调整按钮尺寸
-            val isIReader = com.readassist.utils.DeviceUtils.isIReaderDevice()
-            val sizeDp = if (isIReader) (FLOATING_BUTTON_SIZE * 0.6f).toInt() else FLOATING_BUTTON_SIZE
+            val widthDp = FLOATING_BUTTON_WIDTH
+            val heightDp = FLOATING_BUTTON_HEIGHT
 
             // 创建按钮视图
             floatingButton = LayoutInflater.from(context).inflate(R.layout.floating_button, null)
+            aiButton = floatingButton?.findViewById(R.id.aiFloatingButton)
+            dictionaryButton = floatingButton?.findViewById(R.id.translateFloatingButton)
             Log.e(TAG, "floatingButton inflated")
 
             // 动态设置按钮宽高（防止布局文件覆盖）
             floatingButton?.let { btn ->
                 // 创建新的布局参数
                 val params = android.widget.FrameLayout.LayoutParams(
-                    dpToPx(sizeDp),
-                    dpToPx(sizeDp)
+                    dpToPx(widthDp),
+                    dpToPx(heightDp)
                 )
                 btn.layoutParams = params
             }
@@ -85,15 +88,8 @@ class FloatingButtonManager(
             // 设置透明度为1.0（完全不透明，透明度由XML背景控制）
             floatingButton?.alpha = 1.0f
 
-            // 设置按钮点击事件
-            floatingButton?.setOnClickListener {
-                Log.e(TAG, "Floating button clicked")
-                callbacks.onFloatingButtonClick()
-            }
-            Log.e(TAG, "setOnClickListener set")
-
-            // 设置按钮拖拽功能
-            setupButtonDrag()
+            setupButtonDrag(aiButton, callbacks::onAiButtonClick, callbacks::onAiButtonDoubleClick)
+            setupButtonDrag(dictionaryButton, callbacks::onDictionaryButtonClick, callbacks::onDictionaryButtonDoubleClick)
             Log.e(TAG, "setupButtonDrag called")
 
             // 创建布局参数
@@ -107,8 +103,8 @@ class FloatingButtonManager(
             }
 
             floatingButtonParams = WindowManager.LayoutParams(
-                dpToPx(sizeDp),
-                dpToPx(sizeDp),
+                dpToPx(widthDp),
+                dpToPx(heightDp),
                 windowType,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
                 PixelFormat.TRANSLUCENT
@@ -118,8 +114,8 @@ class FloatingButtonManager(
                 val displayMetrics = context.resources.displayMetrics
 
                 // 计算边缘位置（屏幕右侧边缘中间，一半在屏幕外）
-                edgeButtonX = displayMetrics.widthPixels - dpToPx(sizeDp / 2)
-                edgeButtonY = displayMetrics.heightPixels / 2 - dpToPx(sizeDp / 2)
+                edgeButtonX = displayMetrics.widthPixels - dpToPx(widthDp / 2)
+                edgeButtonY = displayMetrics.heightPixels / 2 - dpToPx(heightDp / 2)
 
                 // 从偏好设置恢复位置
                 val savedX = preferenceManager.getFloatingButtonX()
@@ -163,12 +159,14 @@ class FloatingButtonManager(
      * 移除悬浮按钮
      */
     fun removeButton() {
-        pendingSingleTap?.let(tapHandler::removeCallbacks)
-        pendingSingleTap = null
+        pendingSingleTaps.values.forEach(tapHandler::removeCallbacks)
+        pendingSingleTaps.clear()
         floatingButton?.let { button ->
             try {
                 windowManager.removeView(button)
                 floatingButton = null
+                aiButton = null
+                dictionaryButton = null
                 floatingButtonParams = null
                 Log.e(TAG, "Floating button removed")
             } catch (e: Exception) {
@@ -180,7 +178,7 @@ class FloatingButtonManager(
     /**
      * 设置按钮拖拽功能
      */
-    private fun setupButtonDrag() {
+    private fun setupButtonDrag(button: View?, onSingleTap: () -> Unit, onDoubleTap: () -> Unit) {
         Log.e(TAG, "setupButtonDrag entry")
         var initialX = 0
         var initialY = 0
@@ -189,7 +187,7 @@ class FloatingButtonManager(
         var lastTapTime = 0L
         var touchStartTime = 0L
 
-        floatingButton?.setOnTouchListener { v, event ->
+        button?.setOnTouchListener { v, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     // 记录初始位置和触摸坐标
@@ -219,8 +217,8 @@ class FloatingButtonManager(
 
                     // 如果移动距离超过阈值，视为拖拽
                     if (moveDistance > 10) {
-                        pendingSingleTap?.let(tapHandler::removeCallbacks)
-                        pendingSingleTap = null
+                        pendingSingleTaps.values.forEach(tapHandler::removeCallbacks)
+                        pendingSingleTaps.clear()
                         lastTapTime = 0L
                         val newX = initialX + (event.rawX - initialTouchX).toInt()
                         val newY = initialY + (event.rawY - initialTouchY).toInt()
@@ -261,20 +259,21 @@ class FloatingButtonManager(
                         // 检测双击
                         val currentTime = System.currentTimeMillis()
                         if (lastTapTime > 0L && currentTime - lastTapTime <= DOUBLE_TAP_TIMEOUT_MS) {
-                            pendingSingleTap?.let(tapHandler::removeCallbacks)
-                            pendingSingleTap = null
+                            pendingSingleTaps.remove(v)?.let(tapHandler::removeCallbacks)
                             lastTapTime = 0L
                             Log.e(TAG, "Floating button double clicked")
-                            callbacks.onFloatingButtonDoubleClick()
+                            onDoubleTap()
                         } else {
                             // 延迟确认单击，避免双击时先弹出聊天窗口。
                             lastTapTime = currentTime
-                            pendingSingleTap?.let(tapHandler::removeCallbacks)
-                            pendingSingleTap = Runnable {
-                                pendingSingleTap = null
+                            pendingSingleTaps.remove(v)?.let(tapHandler::removeCallbacks)
+                            val singleTap = Runnable {
+                                pendingSingleTaps.remove(v)
                                 lastTapTime = 0L
-                                v.performClick()
-                            }.also { tapHandler.postDelayed(it, DOUBLE_TAP_TIMEOUT_MS) }
+                                onSingleTap()
+                            }
+                            pendingSingleTaps[v] = singleTap
+                            tapHandler.postDelayed(singleTap, DOUBLE_TAP_TIMEOUT_MS)
                         }
                     } else if (moveDistance >= 10) {
                         // 用户进行了拖拽操作，更新按钮状态
@@ -314,9 +313,8 @@ class FloatingButtonManager(
                 alpha = 1.0f // 完全不透明，透明度由XML背景控制
 
                 // 不再设置背景色，使用XML中定义的白色背景和圆圈边框
-                if (this is Button) {
-                    text = "AI"
-                }
+                aiButton?.text = "AI"
+                dictionaryButton?.text = context.getString(R.string.dictionary_short)
 
                 // 尝试产生振动反馈（如果有振动权限）
                 if (context.checkSelfPermission(android.Manifest.permission.VIBRATE) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
@@ -353,9 +351,8 @@ class FloatingButtonManager(
                 alpha = 1.0f
 
                 // 不再设置背景色，使用XML中定义的白色背景和圆圈边框
-                if (this is Button) {
-                    text = "AI"
-                }
+                aiButton?.text = "AI"
+                dictionaryButton?.text = context.getString(R.string.dictionary_short)
 
                 Log.e(TAG, "🔄 按钮已恢复默认状态")
             }
@@ -490,6 +487,12 @@ class FloatingButtonManager(
                 Log.e(TAG, "🎨 按钮外观已恢复为普通模式")
             }
         }
+    }
+
+    fun setDictionaryWaiting(waiting: Boolean) {
+        dictionaryButton?.text = context.getString(
+            if (waiting) R.string.dictionary_waiting_short else R.string.dictionary_short
+        )
     }
 
     /**

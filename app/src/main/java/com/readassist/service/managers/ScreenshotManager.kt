@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Path
 import android.graphics.Rect
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
@@ -49,6 +50,7 @@ class ScreenshotManager(
     companion object {
         private const val TAG = "ScreenshotManager"
         private const val PERMISSION_REQUEST_COOLDOWN = 3000L // 权限请求冷却时间，3秒
+        private const val DEFAULT_CROP_PADDING_DP = 16
     }
 
     private val deviceType = DeviceUtils.getDeviceType()
@@ -67,6 +69,8 @@ class ScreenshotManager(
     private var textSelectionBounds: Rect? = null
     private var lastSelectionPosition: Pair<Int, Int>? = null
     private var pendingPermissionCropBounds: Rect? = null
+    private var pendingPermissionCropPaddingDp = DEFAULT_CROP_PADDING_DP
+    private var pendingPermissionCropMask: Path? = null
 
     // 存储待处理的截图
     private var pendingScreenshotBitmap: Bitmap? = null
@@ -155,6 +159,7 @@ class ScreenshotManager(
         }
         pendingScreenshotBitmap = null
         pendingPermissionCropBounds = null
+        pendingPermissionCropMask = null
 
         // 解绑服务
         screenshotServiceConnection?.let {
@@ -303,6 +308,7 @@ class ScreenshotManager(
             Log.e(TAG, "❌ 启动权限Activity失败", e)
             isRequestingPermission = false
             pendingPermissionCropBounds = null
+            pendingPermissionCropMask = null
             callbacks.onPermissionDenied()
         }
     }
@@ -310,11 +316,27 @@ class ScreenshotManager(
     /**
      * 执行截屏
      */
-    fun performScreenshot(cropBounds: Rect? = textSelectionBounds) {
+    fun performScreenshot(
+        cropBounds: Rect? = textSelectionBounds,
+        cropPaddingDp: Int = DEFAULT_CROP_PADDING_DP,
+        cropMask: Path? = null
+    ) {
         Log.e(TAG, "=== 执行截屏 ===")
 
         val requestedCropBounds = cropBounds?.let(::Rect)
             ?: pendingPermissionCropBounds?.let(::Rect)
+        val requestedCropPaddingDp = if (cropBounds != null) {
+            cropPaddingDp
+        } else {
+            pendingPermissionCropPaddingDp
+        }
+        val requestedCropMask = if (cropBounds != null) {
+            cropMask?.let(::Path)
+        } else {
+            pendingPermissionCropMask?.let(::Path)
+        }
+        require(requestedCropPaddingDp >= 0) { "截图扩边不能为负数" }
+        require(requestedCropMask == null || requestedCropBounds != null) { "截图遮罩必须包含裁剪范围" }
         textSelectionBounds = null
 
         if (deviceType == DeviceType.IREADER) {
@@ -330,6 +352,8 @@ class ScreenshotManager(
         if (!preferenceManager.isScreenshotPermissionGranted()) {
             Log.e(TAG, "❌ 截屏权限未授予，直接请求权限")
             pendingPermissionCropBounds = requestedCropBounds?.let(::Rect)
+            pendingPermissionCropPaddingDp = requestedCropPaddingDp
+            pendingPermissionCropMask = requestedCropMask?.let(::Path)
             callbacks.onScreenshotFailed(context.getString(R.string.need_screenshot_permission))
 
             // 重置状态标志并请求权限
@@ -339,6 +363,8 @@ class ScreenshotManager(
         }
 
         pendingPermissionCropBounds = null
+        pendingPermissionCropPaddingDp = DEFAULT_CROP_PADDING_DP
+        pendingPermissionCropMask = null
 
         // 开始截屏流程
         coroutineScope.launch {
@@ -370,7 +396,7 @@ class ScreenshotManager(
                 withContext(Dispatchers.IO) {
                     // 统一使用 VirtualDisplay ➜ ImageReader 方案（所有设备）
                     Log.d(TAG, "🎯 使用 VirtualDisplay ➜ ImageReader 方案")
-                    service.captureScreen(requestedCropBounds)
+                    service.captureScreen(requestedCropBounds, requestedCropPaddingDp, requestedCropMask)
                 }
             } catch (e: Exception) {
                 // 捕获截屏过程中的异常
@@ -454,6 +480,7 @@ class ScreenshotManager(
                     Log.d(TAG, "用户取消权限请求")
                     dialog.dismiss()
                     pendingPermissionCropBounds = null
+                    pendingPermissionCropMask = null
                     // 取消时恢复UI
                     callbacks.onScreenshotCancelled()
                 }
@@ -484,6 +511,7 @@ class ScreenshotManager(
             Log.e(TAG, "显示权限对话框失败", e)
             permissionDialog = null
             pendingPermissionCropBounds = null
+            pendingPermissionCropMask = null
             callbacks.onScreenshotCancelled()
         }
     }
@@ -692,6 +720,7 @@ class ScreenshotManager(
             dialogBuilder.setNegativeButton(context.getString(R.string.cancel)) { dialog, _ ->
                 dialog.dismiss()
                 pendingPermissionCropBounds = null
+                pendingPermissionCropMask = null
                 callbacks.onScreenshotCancelled()
             }
             dialogBuilder.setCancelable(true)
@@ -767,6 +796,7 @@ class ScreenshotManager(
                     withContext(Dispatchers.Main) {
                         Toast.makeText(context, context.getString(R.string.screenshot_permission_reset_retry), Toast.LENGTH_LONG).show()
                         pendingPermissionCropBounds = null
+                        pendingPermissionCropMask = null
                         callbacks.onScreenshotCancelled()
 
                         // 额外发送广播，通知其他组件权限已重置
@@ -905,6 +935,7 @@ class ScreenshotManager(
         // 更新权限状态
         isScreenshotPermissionGranted = false
         pendingPermissionCropBounds = null
+        pendingPermissionCropMask = null
 
         // 确保偏好设置也被更新
         preferenceManager.setScreenshotPermissionGranted(false)
@@ -922,6 +953,7 @@ class ScreenshotManager(
         // 重置请求状态
         isRequestingPermission = false
         pendingPermissionCropBounds = null
+        pendingPermissionCropMask = null
 
         // 确保偏好设置也被更新
         preferenceManager.setScreenshotPermissionGranted(false)

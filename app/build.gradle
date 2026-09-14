@@ -11,15 +11,19 @@ android {
 
     defaultConfig {
         applicationId "com.readassist"
-        minSdk 21  // 支持 Android 5.0+，兼容 A5X 的 Android 8.1
+        minSdk 23  // ML Kit 离线文字识别要求 Android 6.0+
         targetSdk 35
-        versionCode 18
-        versionName "1.9.7-deepseek"
+        versionCode 33
+        versionName "1.12.1-dictionary"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 
         // 启用 multidex 支持
         multiDexEnabled true
+
+        ndk {
+            abiFilters 'arm64-v8a', 'armeabi-v7a'
+        }
 
         // Play Store 要求：设置版本名称格式
         setProperty("archivesBaseName", "ReadAssist-v$versionName")
@@ -51,6 +55,13 @@ android {
             matchingFallbacks = ['release']
             applicationIdSuffix ".deepseek"
             versionNameSuffix "-local"
+            signingConfig signingConfigs.debug
+        }
+        deepseekBundled {
+            initWith deepseek
+            matchingFallbacks = ['deepseek', 'release']
+            applicationIdSuffix ".deepseek"
+            versionNameSuffix "-local-full"
             signingConfig signingConfigs.debug
         }
     }
@@ -129,6 +140,7 @@ dependencies {
     implementation 'androidx.activity:activity-ktx:1.7.2'
     implementation 'androidx.fragment:fragment-ktx:1.6.1'
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    implementation 'androidx.documentfile:documentfile:1.0.1'
 
     // ViewModel & LiveData
     implementation 'androidx.lifecycle:lifecycle-viewmodel-ktx:2.6.2'
@@ -155,6 +167,10 @@ dependencies {
 
     // JSON 解析
     implementation 'com.google.code.gson:gson:2.10.1'
+
+    // 离线 OCR 模型随 APK 安装，不依赖设备联网下载
+    implementation 'com.google.mlkit:text-recognition:16.0.1'
+    implementation 'com.google.mlkit:text-recognition-chinese:16.0.1'
 
     // LocalBroadcastManager 支持
     implementation 'androidx.localbroadcastmanager:localbroadcastmanager:1.1.0'

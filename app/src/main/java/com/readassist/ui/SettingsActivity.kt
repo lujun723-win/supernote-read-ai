@@ -1,7 +1,9 @@
 package com.readassist.ui
 
 import android.content.Context
+import android.content.Intent
 import android.os.Bundle
+import android.provider.DocumentsContract
 import android.widget.Toast
 import android.widget.ArrayAdapter
 import android.widget.AdapterView
@@ -13,12 +15,30 @@ import com.readassist.ReadAssistApplication
 import com.readassist.databinding.ActivitySettingsBinding
 import com.readassist.model.AiPlatform
 import com.readassist.model.AiModel
+import com.readassist.model.DictionaryCaptureMode
+import com.readassist.model.OcrLanguage
 import com.readassist.utils.LanguageManager
+import com.readassist.dictionary.OfflineDictionaryManager
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class SettingsActivity : BaseActivity() {
 
     private lateinit var binding: ActivitySettingsBinding
     private lateinit var app: ReadAssistApplication
+    private lateinit var dictionaryManager: OfflineDictionaryManager
+    private val dictionaryFolderPicker = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri == null) return@registerForActivityResult
+        try {
+            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        } catch (_: SecurityException) {
+            // Some document providers grant access only for the current import.
+        }
+        importStarDict(uri)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -28,6 +48,7 @@ class SettingsActivity : BaseActivity() {
         setContentView(binding.root)
 
         app = application as ReadAssistApplication
+        dictionaryManager = app.offlineDictionaryManager
 
         // 设置标题栏
         supportActionBar?.title = getString(R.string.settings_title)
@@ -58,6 +79,7 @@ class SettingsActivity : BaseActivity() {
 
         // 设置Supernote专用设置
         setupSupernoteSettings()
+        setupDictionarySettings()
 
         // 加载当前设置
         loadCurrentSettings()
@@ -321,6 +343,50 @@ class SettingsActivity : BaseActivity() {
         binding.layoutSupernoteSettings.visibility = View.GONE
     }
 
+    private fun setupDictionarySettings() {
+        val captureModes = listOf(
+            DictionaryCaptureMode.REGION_OCR to getString(R.string.dictionary_capture_region),
+            DictionaryCaptureMode.TEXT_SELECTION to getString(R.string.dictionary_capture_text)
+        )
+        binding.dictionaryCaptureModeSpinner.adapter = ArrayAdapter(
+            this,
+            R.layout.spinner_item_small,
+            captureModes.map { it.second }
+        ).apply { setDropDownViewResource(R.layout.spinner_item_small) }
+        binding.dictionaryCaptureModeSpinner.setSelection(
+            captureModes.indexOfFirst { it.first == app.preferenceManager.getDictionaryCaptureMode() }
+                .coerceAtLeast(0)
+        )
+        binding.dictionaryCaptureModeSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                app.preferenceManager.setDictionaryCaptureMode(captureModes[position].first)
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+        }
+
+        val languages = listOf(
+            OcrLanguage.CHINESE to getString(R.string.ocr_language_chinese),
+            OcrLanguage.LATIN to getString(R.string.ocr_language_latin)
+        )
+        binding.ocrLanguageSpinner.adapter = ArrayAdapter(
+            this,
+            R.layout.spinner_item_small,
+            languages.map { it.second }
+        ).apply { setDropDownViewResource(R.layout.spinner_item_small) }
+        binding.ocrLanguageSpinner.setSelection(
+            languages.indexOfFirst { it.first == app.preferenceManager.getOcrLanguage() }.coerceAtLeast(0)
+        )
+        binding.ocrLanguageSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                app.preferenceManager.setOcrLanguage(languages[position].first)
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+        }
+        binding.btnInstallBundledEcdict.visibility =
+            if (dictionaryManager.hasBundledEcdict()) View.VISIBLE else View.GONE
+        updateDictionaryStatus()
+    }
+
     /**
      * 设置监听器
      */
@@ -351,10 +417,93 @@ class SettingsActivity : BaseActivity() {
             clearApiKey()
         }
 
+        binding.btnImportStarDict.setOnClickListener {
+            val downloadDirectory = DocumentsContract.buildDocumentUri(
+                "com.android.externalstorage.documents",
+                "primary:Download"
+            )
+            dictionaryFolderPicker.launch(downloadDirectory)
+        }
+
+        binding.btnInstallBundledEcdict.setOnClickListener {
+            installBundledEcdict()
+        }
+
+        binding.btnClearDictionaries.setOnClickListener {
+            setDictionaryControlsEnabled(false)
+            lifecycleScope.launch {
+                val result = runCatching {
+                    withContext(Dispatchers.IO) { dictionaryManager.deleteAll() }
+                }
+                updateDictionaryStatus()
+                result.onSuccess {
+                    showMessage(getString(R.string.dictionary_cleared))
+                }.onFailure {
+                    showMessage(getString(R.string.dictionary_import_failed, it.message ?: it.javaClass.simpleName))
+                }
+            }
+        }
+
         // 重置设置
         binding.btnResetSettings.setOnClickListener {
             resetSettings()
         }
+    }
+
+    private fun importStarDict(uri: android.net.Uri) {
+        setDictionaryControlsEnabled(false)
+        binding.tvDictionaryStatus.text = getString(R.string.dictionary_importing)
+        lifecycleScope.launch {
+            val result = runCatching {
+                withContext(Dispatchers.IO) { dictionaryManager.importStarDictFolder(uri) }
+            }
+            result.onSuccess {
+                updateDictionaryStatus()
+                showMessage(getString(R.string.dictionary_imported, it.dictionary.name, it.dictionary.wordCount))
+            }.onFailure {
+                updateDictionaryStatus()
+                showMessage(getString(R.string.dictionary_import_failed, it.message ?: it.javaClass.simpleName))
+            }
+        }
+    }
+
+    private fun installBundledEcdict() {
+        if (!dictionaryManager.hasBundledEcdict()) {
+            showMessage(getString(R.string.bundled_ecdict_unavailable))
+            return
+        }
+        setDictionaryControlsEnabled(false)
+        binding.tvDictionaryStatus.text = getString(R.string.bundled_ecdict_installing)
+        lifecycleScope.launch {
+            val result = runCatching {
+                withContext(Dispatchers.IO) { dictionaryManager.installBundledEcdict() }
+            }
+            result.onSuccess {
+                updateDictionaryStatus()
+                showMessage(getString(R.string.dictionary_imported, it.dictionary.name, it.dictionary.wordCount))
+            }.onFailure {
+                updateDictionaryStatus()
+                showMessage(getString(R.string.dictionary_import_failed, it.message ?: it.javaClass.simpleName))
+            }
+        }
+    }
+
+    private fun updateDictionaryStatus() {
+        val dictionaries = dictionaryManager.listDictionaries()
+        binding.tvDictionaryStatus.text = if (dictionaries.isEmpty()) {
+            getString(R.string.no_dictionary_imported)
+        } else {
+            dictionaries.joinToString("\n") { "${it.name}（${it.wordCount} 词）" }
+        }
+        binding.btnClearDictionaries.isEnabled = dictionaries.isNotEmpty()
+        binding.btnImportStarDict.isEnabled = true
+        binding.btnInstallBundledEcdict.isEnabled = dictionaryManager.hasBundledEcdict()
+    }
+
+    private fun setDictionaryControlsEnabled(enabled: Boolean) {
+        binding.btnImportStarDict.isEnabled = enabled
+        binding.btnInstallBundledEcdict.isEnabled = enabled && dictionaryManager.hasBundledEcdict()
+        binding.btnClearDictionaries.isEnabled = enabled && dictionaryManager.listDictionaries().isNotEmpty()
     }
 
     /**

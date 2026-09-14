@@ -44,8 +44,13 @@ import com.readassist.service.managers.ChatWindowManager
 import com.readassist.service.managers.FloatingButtonManager
 import com.readassist.service.managers.ScreenshotManager
 import com.readassist.service.managers.RegionSelectionManager
+import com.readassist.service.managers.RegionSelection
 import com.readassist.service.managers.SessionManager
 import com.readassist.service.managers.TextSelectionManager
+import com.readassist.service.managers.DictionaryWindowManager
+import com.readassist.dictionary.OfflineDictionaryManager
+import com.readassist.dictionary.OfflineOcrManager
+import com.readassist.model.DictionaryCaptureMode
 import com.readassist.ui.MainActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -79,7 +84,8 @@ class FloatingWindowServiceNew : Service(),
     TextSelectionManager.TextSelectionCallbacks,
     ChatWindowManager.ChatWindowCallbacks,
     FloatingButtonManager.FloatingButtonCallbacks,
-    RegionSelectionManager.Callbacks {
+    RegionSelectionManager.Callbacks,
+    DictionaryWindowManager.Callbacks {
 
     companion object {
         private const val TAG = "FloatingWindowServiceNew"
@@ -166,6 +172,9 @@ class FloatingWindowServiceNew : Service(),
     private lateinit var sessionManager: SessionManager
     private lateinit var aiConfigurationManager: AiConfigurationManager
     private lateinit var aiCommunicationManager: AiCommunicationManager
+    private lateinit var dictionaryWindowManager: DictionaryWindowManager
+    private lateinit var offlineDictionaryManager: OfflineDictionaryManager
+    private val offlineOcrManager = OfflineOcrManager()
 
     // 应用实例和协程作用域
     private lateinit var app: ReadAssistApplication
@@ -199,6 +208,12 @@ class FloatingWindowServiceNew : Service(),
                     Log.d(TAG, "📬 接收到ACTION_TEXT_SELECTED广播: app='$appPackage', book='$bookName'")
                     Log.d(TAG, "📬 文本内容: '${text.take(100)}...'")
                     Log.d(TAG, "📬 选择位置: x=$selectionX, y=$selectionY, w=$selectionWidth, h=$selectionHeight")
+
+                    if (isDictionaryTextSelectionPending && text.isNotBlank()) {
+                        isDictionaryTextSelectionPending = false
+                        showDictionaryAndLookup(text)
+                        return
+                    }
 
                     textSelectionManager.handleTextSelected(
                         text, appPackage, bookName,
@@ -259,6 +274,11 @@ class FloatingWindowServiceNew : Service(),
                     Log.d(TAG, "📋 接收到前台服务剪贴板检测: text='${clipboardText.take(50)}...'")
 
                     if (clipboardText.isNotBlank()) {
+                        if (isDictionaryTextSelectionPending) {
+                            isDictionaryTextSelectionPending = false
+                            showDictionaryAndLookup(clipboardText)
+                            return
+                        }
                         // 直接显示聊天窗口并填充文本，无需提示
                         chatWindowManager.showChatWindow()
                         chatWindowManager.importTextToInputField(clipboardText)
@@ -285,6 +305,12 @@ class FloatingWindowServiceNew : Service(),
             Log.e(TAG, "🔴 Intent extras: ${intent?.extras}")
 
             when (intent?.action) {
+                "com.readassist.CLIPBOARD_CHANGED" -> {
+                    if (isDictionaryTextSelectionPending) {
+                        dictionaryCopySignalSeen = true
+                        Log.d(TAG, "📖 字典等待态检测到复制菜单")
+                    }
+                }
                 "com.readassist.CHECK_CLIPBOARD_FROM_HOVER" -> {
                     val source = intent.getStringExtra("source") ?: "unknown"
                     val packageName = intent.getStringExtra("package") ?: "unknown"
@@ -292,10 +318,18 @@ class FloatingWindowServiceNew : Service(),
 
                     Log.e(TAG, "🔴🔴🔴 接收到Hover剪贴板检查请求: source=$source, package=$packageName, timestamp=$timestamp")
 
-                    // 使用透明权限获取窗口方案
-                    Log.e(TAG, "🔴🔴🔴 使用透明权限获取窗口访问剪贴板")
+                    if (isDictionaryTextSelectionPending && !dictionaryCopySignalSeen) {
+                        Log.d(TAG, "📖 尚未检测到复制菜单，不读取旧剪贴板")
+                        return
+                    }
+
+                    if (isDictionaryTextSelectionPending) {
+                        openDictionaryWindowAndReadClipboard()
+                        return
+                    }
+                    Log.e(TAG, "🔴🔴🔴 使用透明权限获取窗口访问剪贴板: LEGACY")
                     try {
-                        createTransparentPermissionWindow()
+                        createTransparentPermissionWindow(ClipboardWindowPurpose.LEGACY)
                         Log.e(TAG, "🔴 透明权限获取窗口创建请求已发送")
                     } catch (e: Exception) {
                         Log.e(TAG, "🔴 创建透明权限获取窗口时发生异常: ${e.message}", e)
@@ -312,6 +346,10 @@ class FloatingWindowServiceNew : Service(),
     private var pendingScreenshot: Uri? = null
     private var pendingScreenshotBitmap: Bitmap? = null
     private var isRegionCaptureInProgress = false
+    private enum class RegionCapturePurpose { AI, DICTIONARY }
+    private var regionCapturePurpose = RegionCapturePurpose.AI
+    private var returnToChatAfterRegionCancel = false
+    private var isDictionaryTextSelectionPending = false
 
     private lateinit var preferenceManager: PreferenceManager
 
@@ -321,6 +359,25 @@ class FloatingWindowServiceNew : Service(),
     // 透明权限获取窗口相关
     private var transparentPermissionWindow: View? = null
     private var windowManager: WindowManager? = null
+    private val clipboardAccessHandler = Handler(Looper.getMainLooper())
+    private var pendingClipboardAccess: Runnable? = null
+    private enum class ClipboardWindowPurpose { LEGACY }
+    private data class ClipboardSnapshot(val timestamp: Long, val textHash: Int)
+    private var dictionaryClipboardBaseline: ClipboardSnapshot? = null
+    private var dictionaryCopySignalSeen = false
+    private var pendingDictionaryClipboardRead: Runnable? = null
+    private val systemClipboardManager by lazy {
+        getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    }
+    private val dictionaryClipboardListener = ClipboardManager.OnPrimaryClipChangedListener {
+        if (!isDictionaryTextSelectionPending || isRegionCaptureInProgress) return@OnPrimaryClipChangedListener
+        val clip = systemClipboardManager.primaryClip ?: return@OnPrimaryClipChangedListener
+        if (clip.itemCount == 0) return@OnPrimaryClipChangedListener
+        val text = clip.getItemAt(0).coerceToText(this).toString().trim()
+        if (text.isEmpty()) return@OnPrimaryClipChangedListener
+        Log.d(TAG, "📖 字典等待态收到新的剪贴板文本: ${text.take(80)}")
+        showDictionaryAndLookup(text)
+    }
 
     /**
      * 检查掌阅设备是否需要配置SAF权限
@@ -501,6 +558,13 @@ class FloatingWindowServiceNew : Service(),
             callbacks = this
         )
 
+        offlineDictionaryManager = app.offlineDictionaryManager
+        dictionaryWindowManager = DictionaryWindowManager(
+            context = this,
+            windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager,
+            callbacks = this
+        )
+
         // 初始化AI配置管理器
         aiConfigurationManager = AiConfigurationManager(
             context = this,
@@ -544,6 +608,7 @@ class FloatingWindowServiceNew : Service(),
             addAction("com.readassist.SCREENSHOT_PERMISSION_ERROR")
         }
         registerReceiver(textDetectedReceiver, textFilter)
+        LocalBroadcastManager.getInstance(this).registerReceiver(textDetectedReceiver, textFilter)
         Log.e(TAG, "🔴 文本检测广播接收器注册成功")
 
         Log.e(TAG, "🔴 注册截屏广播接收器")
@@ -560,9 +625,15 @@ class FloatingWindowServiceNew : Service(),
 
         // 注册Hover触发的剪贴板检查广播接收器
         Log.e(TAG, "🔴 注册Hover剪贴板检查广播接收器")
-        val hoverClipboardFilter = IntentFilter("com.readassist.CHECK_CLIPBOARD_FROM_HOVER")
+        val hoverClipboardFilter = IntentFilter().apply {
+            addAction("com.readassist.CHECK_CLIPBOARD_FROM_HOVER")
+            addAction("com.readassist.CLIPBOARD_CHANGED")
+        }
         registerReceiver(hoverClipboardReceiver, hoverClipboardFilter)
         Log.e(TAG, "🔴 Hover剪贴板检查广播接收器注册成功")
+
+        systemClipboardManager.addPrimaryClipChangedListener(dictionaryClipboardListener)
+        Log.e(TAG, "🔴 字典剪贴板监听器注册成功")
 
 
         Log.e(TAG, "🔴 registerReceivers() 执行完成")
@@ -605,9 +676,11 @@ class FloatingWindowServiceNew : Service(),
         try {
             // 注销广播接收器
             unregisterReceiver(textDetectedReceiver)
+            LocalBroadcastManager.getInstance(this).unregisterReceiver(textDetectedReceiver)
             unregisterReceiver(screenshotTakenReceiver)
             unregisterReceiver(directClipboardReceiver)
             unregisterReceiver(hoverClipboardReceiver)
+            systemClipboardManager.removePrimaryClipChangedListener(dictionaryClipboardListener)
             Log.e(TAG, "已注销所有广播接收器")
         } catch (e: Exception) {
             Log.e(TAG, "注销广播接收器失败", e)
@@ -620,11 +693,16 @@ class FloatingWindowServiceNew : Service(),
         if (::regionSelectionManager.isInitialized) {
             regionSelectionManager.cleanup()
         }
+        if (::dictionaryWindowManager.isInitialized) {
+            dictionaryWindowManager.hide()
+        }
         chatWindowManager?.hideChatWindow()
         floatingButtonManager?.removeButton()
 
         // 清理透明权限获取窗口
         removeTransparentPermissionWindow()
+        pendingDictionaryClipboardRead?.let(clipboardAccessHandler::removeCallbacks)
+        pendingDictionaryClipboardRead = null
 
         super.onDestroy()
 
@@ -638,6 +716,9 @@ class FloatingWindowServiceNew : Service(),
      */
     private fun handleFloatingButtonClick() {
         Log.e(TAG, "[日志追踪] handleFloatingButtonClick 被调用")
+        isDictionaryTextSelectionPending = false
+        floatingButtonManager.setDictionaryWaiting(false)
+        dictionaryWindowManager.hide()
         if (!aiConfigurationManager.isConfigurationValid()) {
             showConfigurationRequiredDialog()
             floatingButtonManager.restoreDefaultState()
@@ -1086,7 +1167,7 @@ class FloatingWindowServiceNew : Service(),
 
         // 发送广播请求获取选中文本
         val intent = Intent("com.readassist.REQUEST_SELECTED_TEXT")
-        sendBroadcast(intent)
+        LocalBroadcastManager.getInstance(this).sendBroadcast(intent)
 
         // 也从文本选择管理器中获取当前应用和书籍信息
         val appPackage = textSelectionManager.getCurrentAppPackage()
@@ -1163,6 +1244,11 @@ class FloatingWindowServiceNew : Service(),
                         lastScreenshotFile = null // content uri 不处理
                     }
 
+                    if (isRegionCapture && regionCapturePurpose == RegionCapturePurpose.DICTIONARY) {
+                        processDictionaryRegionBitmap(bitmap)
+                        return@withContext
+                    }
+
                     // 统一流程：通过FileObserver触发的弹窗逻辑
                     Log.e(TAG, "📢 [统一流程] FileObserver触发弹窗，开始完整处理")
 
@@ -1206,6 +1292,35 @@ class FloatingWindowServiceNew : Service(),
                 }
             }
         }
+    }
+
+    private fun processDictionaryRegionBitmap(bitmap: Bitmap) {
+        offlineOcrManager.recognize(
+            bitmap = bitmap,
+            language = preferenceManager.getOcrLanguage(),
+            onSuccess = { text ->
+                if (!bitmap.isRecycled) bitmap.recycle()
+                finishRegionCapture()
+                floatingButtonManager.setButtonVisibility(true)
+                floatingButtonManager.restoreDefaultState()
+                if (text.isBlank()) {
+                    dictionaryWindowManager.show()
+                    dictionaryWindowManager.showError(getString(R.string.dictionary_ocr_empty))
+                } else {
+                    showDictionaryAndLookup(text)
+                }
+            },
+            onFailure = { error ->
+                if (!bitmap.isRecycled) bitmap.recycle()
+                finishRegionCapture()
+                floatingButtonManager.setButtonVisibility(true)
+                floatingButtonManager.restoreDefaultState()
+                dictionaryWindowManager.show()
+                dictionaryWindowManager.showError(
+                    getString(R.string.dictionary_ocr_failed, error.message ?: error.javaClass.simpleName)
+                )
+            }
+        )
     }
 
     /**
@@ -1368,6 +1483,7 @@ class FloatingWindowServiceNew : Service(),
 
     override fun onScreenshotFailed(error: String) {
         Log.e(TAG, "❌ 截屏失败: $error")
+        val failedPurpose = if (isRegionCaptureInProgress) regionCapturePurpose else RegionCapturePurpose.AI
 
         // 请求系统截屏授权是区域截图流程的中间状态，不是失败终点。
         // 保持独占状态和临时目录监控，授权返回后继续使用已保存的裁剪范围。
@@ -1377,6 +1493,14 @@ class FloatingWindowServiceNew : Service(),
         }
 
         finishRegionCapture()
+
+        if (failedPurpose == RegionCapturePurpose.DICTIONARY) {
+            floatingButtonManager.setButtonVisibility(true)
+            floatingButtonManager.restoreDefaultState()
+            dictionaryWindowManager.show()
+            dictionaryWindowManager.showError("截屏失败：$error")
+            return
+        }
 
         // 恢复UI状态
         floatingButtonManager.restoreDefaultState()
@@ -1416,10 +1540,15 @@ class FloatingWindowServiceNew : Service(),
 
     override fun onScreenshotCancelled() {
         Log.e(TAG, "📸 截屏已取消")
+        val cancelledPurpose = if (isRegionCaptureInProgress) regionCapturePurpose else RegionCapturePurpose.AI
         finishRegionCapture()
         // 恢复界面显示
         floatingButtonManager.setButtonVisibility(true)
         floatingButtonManager.restoreDefaultState()
+        if (cancelledPurpose == RegionCapturePurpose.DICTIONARY) {
+            dictionaryWindowManager.show()
+            dictionaryWindowManager.showError(getString(R.string.region_screenshot_cancelled))
+        }
     }
 
     override fun onScreenshotMessage(message: String) {
@@ -1429,9 +1558,12 @@ class FloatingWindowServiceNew : Service(),
 
     override fun onPermissionRequesting() {
         Log.e(TAG, "🔐 正在请求截屏权限...")
-        // 显示加载消息
-        chatWindowManager.showChatWindow()
-        chatWindowManager.addLoadingMessage(getString(R.string.requesting_screenshot_permission))
+        if (isRegionCaptureInProgress && regionCapturePurpose == RegionCapturePurpose.DICTIONARY) {
+            Toast.makeText(this, getString(R.string.requesting_screenshot_permission), Toast.LENGTH_SHORT).show()
+        } else {
+            chatWindowManager.showChatWindow()
+            chatWindowManager.addLoadingMessage(getString(R.string.requesting_screenshot_permission))
+        }
     }
 
     override fun onPermissionGranted() {
@@ -1455,6 +1587,7 @@ class FloatingWindowServiceNew : Service(),
 
     override fun onPermissionDenied() {
         Log.e(TAG, "❌ 截屏权限被拒绝")
+        val deniedPurpose = if (isRegionCaptureInProgress) regionCapturePurpose else RegionCapturePurpose.AI
         finishRegionCapture()
         // 隐藏加载消息
         chatWindowManager.removeLastMessage()
@@ -1462,6 +1595,10 @@ class FloatingWindowServiceNew : Service(),
         // 恢复UI
         floatingButtonManager.setButtonVisibility(true)
         floatingButtonManager.restoreDefaultState()
+        if (deniedPurpose == RegionCapturePurpose.DICTIONARY) {
+            dictionaryWindowManager.show()
+            dictionaryWindowManager.showError(getString(R.string.screenshot_permission_not_granted))
+        }
     }
 
     // === ChatWindowManager.ChatWindowCallbacks 实现 ===
@@ -1638,11 +1775,23 @@ class FloatingWindowServiceNew : Service(),
     }
 
     override fun onRegionScreenshotRequested() {
+        startRegionCapture(RegionCapturePurpose.AI, returnToChatOnCancel = true)
+    }
+
+    private fun startRegionCapture(
+        purpose: RegionCapturePurpose,
+        returnToChatOnCancel: Boolean = false
+    ) {
         if (isRegionCaptureInProgress) return
+        regionCapturePurpose = purpose
+        returnToChatAfterRegionCancel = returnToChatOnCancel
         isRegionCaptureInProgress = true
+        isDictionaryTextSelectionPending = false
+        floatingButtonManager.setDictionaryWaiting(false)
         screenshotManager.startMonitoring()
         removeTransparentPermissionWindow()
         chatWindowManager.hideChatWindow()
+        dictionaryWindowManager.hide()
         floatingButtonManager.setButtonVisibility(false)
         regionSelectionManager.show()
     }
@@ -1655,20 +1804,28 @@ class FloatingWindowServiceNew : Service(),
         updateInputHintByCheckState()
     }
 
-    override fun onRegionSelected(bounds: Rect) {
+    override fun onRegionSelected(selection: RegionSelection) {
         serviceScope.launch {
             // Give the E-ink screen enough time to remove the selection overlay.
             delay(350)
-            screenshotManager.performScreenshot(bounds)
+            val cropPaddingDp = if (regionCapturePurpose == RegionCapturePurpose.DICTIONARY) 0 else 16
+            val cropMask = if (regionCapturePurpose == RegionCapturePurpose.DICTIONARY) {
+                selection.path
+            } else {
+                null
+            }
+            screenshotManager.performScreenshot(selection.bounds, cropPaddingDp, cropMask)
         }
     }
 
     override fun onRegionSelectionCancelled() {
+        val shouldReturnToChat = returnToChatAfterRegionCancel
         finishRegionCapture()
         floatingButtonManager.setButtonVisibility(true)
         floatingButtonManager.restoreDefaultState()
-        chatWindowManager.showChatWindow()
-        chatWindowManager.addSystemMessage(getString(R.string.region_screenshot_cancelled))
+        if (shouldReturnToChat) {
+            chatWindowManager.showChatWindow()
+        }
     }
 
     override fun onConfigStatusClick(platform: com.readassist.model.AiPlatform?) {
@@ -1686,16 +1843,141 @@ class FloatingWindowServiceNew : Service(),
     /**
      * 实现FloatingButtonCallbacks接口的方法
      */
-    override fun onFloatingButtonClick() {
+    override fun onAiButtonClick() {
         handleFloatingButtonClick()
     }
 
-    override fun onFloatingButtonDoubleClick() {
+    override fun onAiButtonDoubleClick() {
         if (!aiConfigurationManager.isConfigurationValid()) {
             showConfigurationRequiredDialog()
             return
         }
-        onRegionScreenshotRequested()
+        startRegionCapture(RegionCapturePurpose.AI)
+    }
+
+    override fun onDictionaryButtonClick() {
+        isDictionaryTextSelectionPending = false
+        floatingButtonManager.setDictionaryWaiting(false)
+        chatWindowManager.hideChatWindow()
+        pendingDictionaryClipboardRead?.let(clipboardAccessHandler::removeCallbacks)
+        dictionaryWindowManager.show(showKeyboard = false)
+        if (offlineDictionaryManager.isImporting) {
+            dictionaryWindowManager.showError(getString(R.string.dictionary_import_in_progress))
+        } else if (offlineDictionaryManager.listDictionaries().isEmpty()) {
+            dictionaryWindowManager.showError(getString(R.string.dictionary_no_data))
+        }
+        pendingDictionaryClipboardRead = Runnable {
+            pendingDictionaryClipboardRead = null
+            val text = readClipboardSnapshot().second
+            if (!text.isNullOrBlank() && dictionaryWindowManager.setQueryIfEmpty(text)) {
+                Log.d(TAG, "📖 已将当前剪贴板文字填入查词框，长度=${text.trim().length}")
+            }
+        }.also { clipboardAccessHandler.postDelayed(it, 250) }
+    }
+
+    override fun onDictionaryButtonDoubleClick() {
+        when (preferenceManager.getDictionaryCaptureMode()) {
+            DictionaryCaptureMode.REGION_OCR -> startDictionaryRegionOcr()
+            DictionaryCaptureMode.TEXT_SELECTION -> startDictionaryTextSelection()
+        }
+    }
+
+    override fun onDictionaryTextSelectionRequested() {
+        startDictionaryTextSelection()
+    }
+
+    override fun onDictionaryRegionOcrRequested() {
+        startDictionaryRegionOcr()
+    }
+
+    private fun startDictionaryTextSelection() {
+        preferenceManager.setDictionaryCaptureMode(DictionaryCaptureMode.TEXT_SELECTION)
+        removeTransparentPermissionWindow()
+        pendingDictionaryClipboardRead?.let(clipboardAccessHandler::removeCallbacks)
+        pendingDictionaryClipboardRead = null
+        chatWindowManager.hideChatWindow()
+
+        if (dictionaryWindowManager.isShowing()) {
+            beginDictionaryTextSelection(readClipboardSnapshot())
+        } else {
+            dictionaryWindowManager.show(showKeyboard = false)
+            pendingDictionaryClipboardRead = Runnable {
+                pendingDictionaryClipboardRead = null
+                beginDictionaryTextSelection(readClipboardSnapshot())
+            }.also { clipboardAccessHandler.postDelayed(it, 250) }
+        }
+    }
+
+    private fun beginDictionaryTextSelection(baseline: Pair<ClipboardSnapshot?, String?>) {
+        dictionaryClipboardBaseline = baseline.first
+        dictionaryCopySignalSeen = false
+        isDictionaryTextSelectionPending = true
+        dictionaryWindowManager.hide()
+        floatingButtonManager.setDictionaryWaiting(true)
+        Toast.makeText(this, getString(R.string.dictionary_wait_selection), Toast.LENGTH_LONG).show()
+        Log.d(TAG, "📖 已在词典窗口前台态记录剪贴板基线: ${baseline.first}")
+    }
+
+    private fun openDictionaryWindowAndReadClipboard() {
+        pendingDictionaryClipboardRead?.let(clipboardAccessHandler::removeCallbacks)
+        dictionaryWindowManager.show(showKeyboard = false)
+        pendingDictionaryClipboardRead = Runnable {
+            pendingDictionaryClipboardRead = null
+            val (snapshot, text) = readClipboardSnapshot()
+            val changed = snapshot != null && snapshot != dictionaryClipboardBaseline
+            if (changed && !text.isNullOrBlank()) {
+                dictionaryCopySignalSeen = false
+                showDictionaryAndLookup(text)
+            } else {
+                dictionaryCopySignalSeen = false
+                isDictionaryTextSelectionPending = false
+                floatingButtonManager.setDictionaryWaiting(false)
+                dictionaryWindowManager.hide()
+                Log.d(TAG, "📖 剪贴板未变化，按取消处理")
+            }
+        }.also { clipboardAccessHandler.postDelayed(it, 250) }
+    }
+
+    private fun readClipboardSnapshot(): Pair<ClipboardSnapshot?, String?> {
+        val clip = systemClipboardManager.primaryClip ?: return null to null
+        if (clip.itemCount == 0) return null to null
+        val text = clip.getItemAt(0).coerceToText(this).toString()
+        val timestamp = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            clip.description.timestamp
+        } else {
+            -1L
+        }
+        return ClipboardSnapshot(timestamp, text.hashCode()) to text
+    }
+
+    private fun startDictionaryRegionOcr() {
+        preferenceManager.setDictionaryCaptureMode(DictionaryCaptureMode.REGION_OCR)
+        startRegionCapture(RegionCapturePurpose.DICTIONARY)
+    }
+
+    override fun onDictionaryLookupRequested(query: String) {
+        if (offlineDictionaryManager.isImporting) {
+            dictionaryWindowManager.showError(getString(R.string.dictionary_import_in_progress))
+            return
+        }
+        if (offlineDictionaryManager.listDictionaries().isEmpty()) {
+            dictionaryWindowManager.showError(getString(R.string.dictionary_no_data))
+            return
+        }
+        dictionaryWindowManager.showLoading(query)
+        serviceScope.launch {
+            val result = runCatching {
+                withContext(Dispatchers.IO) { offlineDictionaryManager.lookup(query) }
+            }
+            result.onSuccess { dictionaryWindowManager.showResults(query, it) }
+                .onFailure { dictionaryWindowManager.showError(it.message ?: it.javaClass.simpleName) }
+        }
+    }
+
+    private fun showDictionaryAndLookup(query: String) {
+        isDictionaryTextSelectionPending = false
+        floatingButtonManager.setDictionaryWaiting(false)
+        dictionaryWindowManager.show(query, requestLookup = true)
     }
 
     override fun onHistoryButtonClick() {
@@ -1857,8 +2139,10 @@ class FloatingWindowServiceNew : Service(),
      * 创建透明权限获取窗口
      * 用于获取剪贴板访问权限，用户完全感知不到
      */
-    private fun createTransparentPermissionWindow() {
-        Log.d(TAG, "🔴 开始创建透明权限获取窗口")
+    private fun createTransparentPermissionWindow(
+        purpose: ClipboardWindowPurpose = ClipboardWindowPurpose.LEGACY
+    ) {
+        Log.d(TAG, "🔴 开始创建透明权限获取窗口: $purpose")
 
         try {
             // 如果已有透明窗口，先移除
@@ -1878,8 +2162,8 @@ class FloatingWindowServiceNew : Service(),
                     WindowManager.LayoutParams.TYPE_PHONE
                 }
 
-                flags = WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                        WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
                         WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
                         WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
 
@@ -1895,9 +2179,10 @@ class FloatingWindowServiceNew : Service(),
             Log.d(TAG, "🔴 透明权限获取窗口已创建")
 
             // 延迟访问剪贴板，给系统时间处理窗口创建
-            Handler(Looper.getMainLooper()).postDelayed({
-                accessClipboardWithTransparentWindow()
-            }, 200) // 从100ms增加到200ms，给复制操作更多时间
+            pendingClipboardAccess = Runnable {
+                pendingClipboardAccess = null
+                accessClipboardWithTransparentWindow(purpose)
+            }.also { clipboardAccessHandler.postDelayed(it, 200) }
 
         } catch (e: Exception) {
             Log.e(TAG, "🔴 创建透明权限获取窗口失败: ${e.message}", e)
@@ -1908,8 +2193,8 @@ class FloatingWindowServiceNew : Service(),
     /**
      * 使用透明窗口访问剪贴板
      */
-    private fun accessClipboardWithTransparentWindow() {
-        Log.d(TAG, "🔴 透明窗口开始访问剪贴板")
+    private fun accessClipboardWithTransparentWindow(purpose: ClipboardWindowPurpose) {
+        Log.d(TAG, "🔴 透明窗口开始访问剪贴板: $purpose")
 
         if (isRegionCaptureInProgress) {
             Log.d(TAG, "区域截图进行中，取消延迟的剪贴板读取")
@@ -1947,14 +2232,9 @@ class FloatingWindowServiceNew : Service(),
                 Log.d(TAG, "🔴 透明窗口剪贴板为空或无内容")
             }
 
-            // 如果有剪贴板内容，启动聊天窗口
-            if (success && clipboardText.isNotBlank()) {
-                Log.d(TAG, "🔴 透明窗口检测到剪贴板内容，启动聊天窗口")
-
+            if (success) {
                 chatWindowManager.showChatWindow()
                 chatWindowManager.importTextToInputField(clipboardText)
-
-                Log.d(TAG, "🔴 透明窗口剪贴板内容已成功导入到聊天窗口")
             } else {
                 Log.d(TAG, "🔴 透明窗口剪贴板无内容，不启动聊天窗口")
             }
@@ -1971,6 +2251,7 @@ class FloatingWindowServiceNew : Service(),
         if (!isRegionCaptureInProgress) return
 
         isRegionCaptureInProgress = false
+        returnToChatAfterRegionCancel = false
         screenshotManager.stopMonitoring()
     }
 
@@ -1978,6 +2259,8 @@ class FloatingWindowServiceNew : Service(),
      * 移除透明权限获取窗口
      */
     private fun removeTransparentPermissionWindow() {
+        pendingClipboardAccess?.let(clipboardAccessHandler::removeCallbacks)
+        pendingClipboardAccess = null
         try {
             transparentPermissionWindow?.let { window ->
                 windowManager?.removeView(window)

@@ -9,6 +9,8 @@ import androidx.security.crypto.MasterKey
 import com.readassist.R
 import com.readassist.model.AiPlatform
 import com.readassist.model.AiModel
+import com.readassist.model.DictionaryCaptureMode
+import com.readassist.model.OcrLanguage
 import java.security.GeneralSecurityException
 import java.io.IOException
 
@@ -37,6 +39,8 @@ class PreferenceManager(private val context: Context) {
         private const val KEY_SCREENSHOT_RESULT_DATA = "screenshot_result_data"
         private const val KEY_AI_SETUP_COMPLETED = "ai_setup_completed"
         private const val KEY_APP_LANGUAGE = "app_language"
+        private const val KEY_DICTIONARY_CAPTURE_MODE = "dictionary_capture_mode"
+        private const val KEY_OCR_LANGUAGE = "dictionary_ocr_language"
 
         // 默认值
         // 默认提示词将根据系统语言动态获取
@@ -414,6 +418,24 @@ class PreferenceManager(private val context: Context) {
     fun getAppLanguage(): String {
         return normalPrefs.getString(KEY_APP_LANGUAGE, "system") ?: "system"
     }
+
+    fun setDictionaryCaptureMode(mode: DictionaryCaptureMode) {
+        normalPrefs.edit().putString(KEY_DICTIONARY_CAPTURE_MODE, mode.storedValue).apply()
+    }
+
+    fun getDictionaryCaptureMode(): DictionaryCaptureMode = DictionaryCaptureMode.fromStoredValue(
+        normalPrefs.getString(KEY_DICTIONARY_CAPTURE_MODE, DictionaryCaptureMode.REGION_OCR.storedValue)
+            ?: DictionaryCaptureMode.REGION_OCR.storedValue
+    )
+
+    fun setOcrLanguage(language: OcrLanguage) {
+        normalPrefs.edit().putString(KEY_OCR_LANGUAGE, language.storedValue).apply()
+    }
+
+    fun getOcrLanguage(): OcrLanguage = OcrLanguage.fromStoredValue(
+        normalPrefs.getString(KEY_OCR_LANGUAGE, OcrLanguage.CHINESE.storedValue)
+            ?: OcrLanguage.CHINESE.storedValue
+    )
 
     /**
      * 获取Supernote设备截屏开关状态

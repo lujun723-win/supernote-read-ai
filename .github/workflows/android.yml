@@ -32,14 +32,17 @@ jobs:
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
 
-    - name: Build DeepSeek APK
-      run: ./gradlew assembleDeepseek
+    - name: Test and build both APKs
+      run: ./gradlew testDeepseekUnitTest assembleDeepseek assembleDeepseekBundled
 
-    - name: Run DeepSeek Unit Tests
-      run: ./gradlew testDeepseekUnitTest
-
-    - name: Upload DeepSeek APK
+    - name: Upload lightweight APK
       uses: actions/upload-artifact@v4
       with:
-        name: ReadAssist-deepseek
-        path: app/build/outputs/apk/deepseek/ReadAssist-v1.9.7-deepseek-deepseek.apk
+        name: ReadAssist-v1.12.1-light
+        path: app/build/outputs/apk/deepseek/ReadAssist-v1.12.1-dictionary-deepseek.apk
+
+    - name: Upload ECDICT APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: ReadAssist-v1.12.1-full-ecdict
+        path: app/build/outputs/apk/deepseekBundled/ReadAssist-v1.12.1-dictionary-deepseekBundled.apk

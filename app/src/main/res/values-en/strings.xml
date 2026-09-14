@@ -32,6 +32,9 @@
     <string name="prompt_template_hint">Customize AI prompt (use [TEXT] for selected text)</string>
     <string name="auto_analyze_title">Auto Analysis</string>
     <string name="auto_analyze_summary">Auto-analyze copied text</string>
+    <string name="install_bundled_ecdict">Install bundled ECDICT</string>
+    <string name="bundled_ecdict_unavailable">This lightweight APK does not include ECDICT</string>
+    <string name="bundled_ecdict_installing">Extracting ECDICT and building its index. Keep this page open…</string>
     <string name="clear_data_title">Clear Data</string>
     <string name="clear_data_summary">Clear all data</string>
     <string name="about_title">About</string>
@@ -43,6 +46,9 @@
     <string name="send">Send</string>
     <string name="input_hint">Enter question or click to analyze selected text</string>
     <string name="analyze_text">Analyze Text</string>
+    <string name="dictionary_select_text">Select text</string>
+    <string name="dictionary_region_ocr">Region OCR</string>
+    <string name="dictionary_import_in_progress">The dictionary is being imported and indexed. Try again after it finishes.</string>
 
     <!-- Chat Related -->
     <string name="ai_thinking">AI is thinking...</string>
