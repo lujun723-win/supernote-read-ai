@@ -25,6 +25,7 @@ import android.view.ActionMode
 import android.view.Menu
 import android.view.MenuItem
 import com.readassist.R
+import com.readassist.model.AiCaptureMode
 import com.readassist.model.AiPlatform
 import com.readassist.service.ChatItem
 import com.readassist.ReadAssistApplication
@@ -32,6 +33,13 @@ import com.readassist.utils.PreferenceManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+
+internal fun mergeImportedText(currentText: String, importedText: String): String = when {
+    currentText.trim() == importedText.trim() -> currentText
+    currentText.isEmpty() -> importedText
+    currentText.endsWith(" ") || currentText.endsWith("\n") -> currentText + importedText
+    else -> "$currentText\n$importedText"
+}
 
 /**
  * 管理聊天窗口的创建、显示和交互
@@ -57,8 +65,9 @@ class ChatWindowManager(
     private var inputEditText: EditText? = null
     private var sendButton: Button? = null
     private var newChatButton: Button? = null
-    private var regionScreenshotButton: Button? = null
+    private var aiCaptureModeButton: Button? = null
     private var historyButton: Button? = null
+    private var exportCurrentButton: Button? = null
     private var tvTitle: TextView? = null
 
     // 文本选择管理器
@@ -311,8 +320,9 @@ class ChatWindowManager(
 
             sendButton = view.findViewById(R.id.sendButton)
             newChatButton = view.findViewById(R.id.newChatButton)
-            regionScreenshotButton = view.findViewById(R.id.regionScreenshotButton)
+            aiCaptureModeButton = view.findViewById(R.id.aiCaptureModeButton)
             historyButton = view.findViewById(R.id.historyButton)
+            exportCurrentButton = view.findViewById(R.id.exportCurrentButton)
 
             // 初始化AI配置UI组件
             platformSpinner = view.findViewById(R.id.platformSpinner)
@@ -393,12 +403,22 @@ class ChatWindowManager(
                 callbacks.onNewChatButtonClick()
             }
 
-            regionScreenshotButton?.setOnClickListener {
-                callbacks.onRegionScreenshotRequested()
+            updateAiCaptureModeButton(preferenceManager.getAiCaptureMode())
+            aiCaptureModeButton?.setOnClickListener {
+                callbacks.onAiCaptureModeToggleRequested()
             }
 
             historyButton?.setOnClickListener {
                 callbacks.onHistoryButtonClick()
+            }
+
+            exportCurrentButton?.setOnClickListener {
+                val conversation = findCurrentCompleteConversation()
+                if (conversation == null) {
+                    Toast.makeText(context, R.string.export_no_complete_conversation, Toast.LENGTH_SHORT).show()
+                } else {
+                    callbacks.onExportCurrentConversation(conversation.first, conversation.second)
+                }
             }
 
             // 关闭按钮
@@ -489,7 +509,7 @@ class ChatWindowManager(
      * 添加系统消息
      */
     fun addSystemMessage(message: String) {
-        val systemItem = ChatItem("", "💡 $message", false, false, false)
+        val systemItem = ChatItem("", "💡 $message", false, false, false, true)
         chatAdapter?.addItem(systemItem)
         scrollToBottom()
     }
@@ -519,6 +539,19 @@ class ChatWindowManager(
         scrollToBottom()
     }
 
+    private fun findCurrentCompleteConversation(): Pair<String, String>? {
+        val userIndex = chatHistory.indexOfLast {
+            it.isUserMessage && !it.isLoading && it.userMessage.isNotBlank()
+        }
+        if (userIndex < 0) return null
+
+        val answer = chatHistory.drop(userIndex + 1).firstOrNull {
+            !it.isUserMessage && !it.isLoading && !it.isError && !it.isSystem && it.aiMessage.isNotBlank()
+        } ?: return null
+
+        return chatHistory[userIndex].userMessage to answer.aiMessage
+    }
+
     /**
      * 将文本导入到输入框
      */
@@ -529,19 +562,21 @@ class ChatWindowManager(
             val currentText = editText.text?.toString() ?: ""
             Log.e(TAG, "[日志追踪] 当前输入框内容: $currentText")
 
+            // 选中文本和剪贴板可能同时送达；相同文本只导入一次。
+            val mergedText = mergeImportedText(currentText, text)
+            if (mergedText == currentText) {
+                Log.e(TAG, "[日志追踪] 输入框已包含同一份自动导入文本，跳过")
+                return
+            }
+
             // 如果输入框为空，直接设置文本
             if (currentText.isEmpty()) {
-                editText.setText(text)
+                editText.setText(mergedText)
                 Log.e(TAG, "[日志追踪] 输入框为空，直接设置文本: $text")
             } else {
                 // 如果输入框有内容，在末尾添加选中文本
-                val newText = if (currentText.endsWith(" ") || currentText.endsWith("\n")) {
-                    currentText + text
-                } else {
-                    "$currentText\n$text"
-                }
-                editText.setText(newText)
-                Log.e(TAG, "[日志追踪] 输入框有内容，追加文本: $newText")
+                editText.setText(mergedText)
+                Log.e(TAG, "[日志追踪] 输入框有内容，追加文本: $mergedText")
             }
 
             // 将光标移到文本末尾
@@ -563,27 +598,7 @@ class ChatWindowManager(
             val clipboardText = clip.getItemAt(0).coerceToText(context).toString()
             if (clipboardText.isNotBlank()) {
                 Log.e(TAG, "[日志追踪] 剪贴板内容: ${clipboardText.take(50)}...")
-
-                // 获取当前输入框内容
-                val currentText = inputEditText?.text?.toString() ?: ""
-
-                // 如果输入框为空，直接设置剪贴板内容
-                if (currentText.isEmpty()) {
-                    inputEditText?.setText(clipboardText)
-                    Log.e(TAG, "[日志追踪] 输入框为空，直接设置剪贴板内容")
-                } else {
-                    // 如果输入框有内容，在末尾添加剪贴板内容
-                    val newText = if (currentText.endsWith(" ") || currentText.endsWith("\n")) {
-                        currentText + clipboardText
-                    } else {
-                        "$currentText\n$clipboardText"
-                    }
-                    inputEditText?.setText(newText)
-                    Log.e(TAG, "[日志追踪] 输入框有内容，追加剪贴板内容")
-                }
-
-                // 将光标移到文本末尾
-                inputEditText?.setSelection(inputEditText?.text?.length ?: 0)
+                importTextToInputField(clipboardText)
             } else {
                 Log.e(TAG, "[日志追踪] 剪贴板内容为空，不导入")
             }
@@ -841,9 +856,10 @@ class ChatWindowManager(
         fun onChatWindowHidden()
         fun onMessageSend(message: String)
         fun onNewChatButtonClick()
-        fun onRegionScreenshotRequested()
+        fun onAiCaptureModeToggleRequested()
         fun onRegionScreenshotAttachmentChanged(attached: Boolean)
         fun onHistoryButtonClick()
+        fun onExportCurrentConversation(question: String, answer: String)
         fun onConfigStatusClick(platform: AiPlatform?)
         fun onShowApiKeyDialog(platform: AiPlatform)
     }
@@ -851,6 +867,15 @@ class ChatWindowManager(
     fun setInputHint(hint: String) {
         Log.e(TAG, "[日志追踪] 设置输入框提示: $hint")
         inputEditText?.hint = hint
+    }
+
+    fun updateAiCaptureModeButton(mode: AiCaptureMode) {
+        aiCaptureModeButton?.setText(
+            when (mode) {
+                AiCaptureMode.TEXT_SELECTION -> R.string.ai_capture_text
+                AiCaptureMode.REGION_SCREENSHOT -> R.string.ai_capture_region
+            }
+        )
     }
 
     fun isSendClipboardChecked(): Boolean {
@@ -877,6 +902,8 @@ class ChatWindowManager(
         lastInputText = ""
         inputEditText?.text?.clear()
     }
+
+    fun isShowing(): Boolean = isWindowVisible && chatWindow != null
 
     // 设置"发送剪贴板内容"勾选框状态
     fun setSendClipboardChecked(checked: Boolean) {

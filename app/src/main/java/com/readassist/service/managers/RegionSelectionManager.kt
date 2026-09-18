@@ -32,6 +32,7 @@ class RegionSelectionManager(
     interface Callbacks {
         fun onRegionSelected(selection: RegionSelection)
         fun onRegionSelectionCancelled()
+        fun onRegionSelectionWindowVisibilityChanged(visible: Boolean)
     }
 
     private var selectionView: RegionSelectionView? = null
@@ -71,6 +72,7 @@ class RegionSelectionManager(
         try {
             windowManager.addView(view, params)
             selectionView = view
+            callbacks.onRegionSelectionWindowVisibilityChanged(true)
         } catch (_: Exception) {
             Toast.makeText(
                 context,
@@ -90,6 +92,7 @@ class RegionSelectionManager(
             }
         }
         selectionView = null
+        callbacks.onRegionSelectionWindowVisibilityChanged(false)
     }
 
     fun cleanup() = dismiss()

@@ -5,8 +5,7 @@ import com.readassist.database.ChatEntity
 import com.readassist.database.ChatSessionEntity
 import com.readassist.network.ApiResult
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.first
-import java.util.*
+import java.util.UUID
 import android.util.Log
 
 class ChatRepository(
@@ -112,6 +111,18 @@ class ChatRepository(
      */
     fun getChatMessages(sessionId: String): Flow<List<ChatEntity>> {
         return chatDao.getChatMessagesBySession(sessionId)
+    }
+
+    suspend fun getMessagesByIds(messageIds: List<Long>): List<ChatEntity> {
+        return chatDao.getChatMessagesByIds(messageIds)
+    }
+
+    suspend fun getMessagesForExport(archived: Boolean?): List<ChatEntity> {
+        return if (archived == null) {
+            chatDao.getAllChatMessagesForExport()
+        } else {
+            chatDao.getChatMessagesByArchiveState(archived)
+        }
     }
 
     /**
@@ -288,44 +299,6 @@ class ChatRepository(
         }
 
         return Pair(extractedApp, extractedBook)
-    }
-
-    /**
-     * 导出聊天记录
-     */
-    suspend fun exportChatHistory(sessionId: String? = null): String {
-        val messages = if (sessionId != null) {
-            chatDao.getChatMessagesBySession(sessionId).first()
-        } else {
-            // 导出所有消息（按会话分组）
-            val sessions = chatDao.getAllSessions().first()
-            sessions.flatMap { session ->
-                chatDao.getChatMessagesBySession(session.sessionId).first()
-            }
-        }
-
-        return buildString {
-            appendLine("ReadAssist 聊天记录导出")
-            appendLine("导出时间: ${Date()}")
-            appendLine("-".repeat(50))
-
-            messages.groupBy { it.sessionId }.forEach { (sessionId, sessionMessages) ->
-                val session = sessionMessages.firstOrNull()
-                appendLine("\n会话: ${session?.bookName ?: "未知"}")
-                appendLine("应用: ${session?.appPackage ?: "未知"}")
-                appendLine("时间: ${Date(session?.timestamp ?: 0)}")
-                appendLine("-".repeat(30))
-
-                sessionMessages.forEach { message ->
-                    appendLine("\n用户: ${message.userMessage}")
-                    appendLine("AI: ${message.aiResponse}")
-                    if (message.isBookmarked) {
-                        appendLine("★ 已收藏")
-                    }
-                }
-                appendLine("-".repeat(50))
-            }
-        }
     }
 
     /**

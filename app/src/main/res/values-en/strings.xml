@@ -63,6 +63,15 @@
     <string name="search_history">Search History</string>
     <string name="no_history">No chat records</string>
     <string name="export_history">Export Records</string>
+    <string name="export_current_short">Export</string>
+    <string name="select_conversation">Select this Q&amp;A</string>
+    <string name="selected_conversation_count">%d Q&amp;A selected</string>
+    <string name="export_selected_conversations">Export Selected Q&amp;A</string>
+    <string name="export_select_at_least_one">Select at least one Q&amp;A first</string>
+    <string name="export_no_complete_conversation">There is no complete Q&amp;A to export</string>
+    <string name="export_select_export_folder">For the first export, select the EXPORT folder in the Supernote root directory</string>
+    <string name="export_folder_not_authorized">EXPORT folder access was not granted; export cancelled</string>
+    <string name="export_markdown_success">Exported %1$d Q&amp;A: EXPORT/%2$s/%3$s</string>
     <string name="session_from">From: %s</string>
     <string name="messages_count">%d messages</string>
 
@@ -114,6 +123,12 @@
     <string name="new_chat">New Chat</string>
     <string name="send_screenshot">Send Screenshot</string>
     <string name="region_screenshot">Region</string>
+    <string name="ai_capture_text">Select text</string>
+    <string name="ai_capture_region">Region</string>
+    <string name="ai_capture_mode_text_selected">Switched to text selection</string>
+    <string name="ai_capture_mode_region_selected">Switched to region capture</string>
+    <string name="ai_wait_selection">Select and copy text in the reader; the next new selection will open AI automatically</string>
+    <string name="supernote_text_selection_manual_required">Supernote does not expose a text-tool switching API. Tap Text Selection on the left, then select and copy text.</string>
     <string name="region_screenshot_instruction">Circle the area to analyze; release the pen to capture</string>
     <string name="region_screenshot_too_small">Selection is too small. Please try again.</string>
     <string name="region_screenshot_open_failed">Cannot open region capture. Check overlay permission.</string>

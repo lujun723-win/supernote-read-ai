@@ -66,6 +66,12 @@
             android:exported="false"
             android:parentActivityName=".ui.HistoryActivity" />
 
+        <activity
+            android:name=".ui.MarkdownExportActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.Transparent.NoActionBar" />
+
         <!-- 截屏权限请求 Activity -->
         <activity
             android:name=".ui.ScreenshotPermissionActivity"

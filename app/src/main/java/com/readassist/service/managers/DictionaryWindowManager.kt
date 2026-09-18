@@ -24,6 +24,7 @@ class DictionaryWindowManager(
         fun onDictionaryLookupRequested(query: String)
         fun onDictionaryTextSelectionRequested()
         fun onDictionaryRegionOcrRequested()
+        fun onDictionaryWindowVisibilityChanged(visible: Boolean)
     }
 
     private var window: View? = null
@@ -83,6 +84,7 @@ class DictionaryWindowManager(
         }
         windowManager.addView(container, params)
         window = container
+        callbacks.onDictionaryWindowVisibilityChanged(true)
 
         if (requestLookup && query.isNotBlank()) {
             submit()
@@ -140,5 +142,6 @@ class DictionaryWindowManager(
         queryInput = null
         statusText = null
         resultText = null
+        callbacks.onDictionaryWindowVisibilityChanged(false)
     }
 }

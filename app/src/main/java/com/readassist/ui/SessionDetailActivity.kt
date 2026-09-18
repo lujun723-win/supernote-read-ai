@@ -5,19 +5,13 @@ import android.view.Menu
 import android.view.MenuItem
 import android.view.View
 import android.widget.Toast
-import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.readassist.R
 import com.readassist.ReadAssistApplication
-import com.readassist.database.ChatEntity
 import com.readassist.databinding.ActivitySessionDetailBinding
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
-import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 class SessionDetailActivity : BaseActivity() {
 
@@ -93,6 +87,13 @@ class SessionDetailActivity : BaseActivity() {
         adapter = ChatMessageAdapter(
             onBookmarkToggle = { message, isBookmarked ->
                 toggleMessageBookmark(message.id, isBookmarked)
+            },
+            onSelectionCountChanged = { count ->
+                supportActionBar?.subtitle = if (count == 0) {
+                    getString(R.string.session_detail)
+                } else {
+                    getString(R.string.selected_conversation_count, count)
+                }
             }
         )
         binding.recyclerViewMessages.layoutManager = LinearLayoutManager(this)
@@ -113,7 +114,7 @@ class SessionDetailActivity : BaseActivity() {
                 // 滚动到底部
                 if (messages.isNotEmpty()) {
                     binding.recyclerViewMessages.post {
-                        binding.recyclerViewMessages.scrollToPosition(messages.size - 1)
+                        binding.recyclerViewMessages.scrollToPosition(adapter.itemCount - 1)
                     }
                 }
             }
@@ -132,50 +133,13 @@ class SessionDetailActivity : BaseActivity() {
     }
 
     private fun exportSession() {
-        lifecycleScope.launch {
-            try {
-                binding.progressBar.visibility = View.VISIBLE
-                val content = app.chatRepository.exportChatHistory(sessionId)
-                saveToFile(content, "ReadAssist_${bookName}_导出.txt")
-                binding.progressBar.visibility = View.GONE
-            } catch (e: Exception) {
-                binding.progressBar.visibility = View.GONE
-                Toast.makeText(this@SessionDetailActivity, getString(R.string.export_failed, e.message), Toast.LENGTH_SHORT).show()
-            }
+        val selectedIds = adapter.getSelectedMessageIds()
+        if (selectedIds.isEmpty()) {
+            Toast.makeText(this, R.string.export_select_at_least_one, Toast.LENGTH_SHORT).show()
+            return
         }
-    }
 
-    private fun saveToFile(content: String, suggestedName: String) {
-        try {
-            // 生成带时间戳的文件名
-            val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
-            val fileName = suggestedName.replace(".txt", "_$timestamp.txt")
-
-            // 创建导出目录
-            val exportDir = File(getExternalFilesDir(null), "exports")
-            if (!exportDir.exists()) {
-                exportDir.mkdirs()
-            }
-
-            // 创建文件并写入内容
-            val file = File(exportDir, fileName)
-            file.writeText(content)
-
-            // 显示成功消息
-            Toast.makeText(
-                this,
-                getString(R.string.export_success_path, file.absolutePath),
-                Toast.LENGTH_LONG
-            ).show()
-
-            // 可选：触发系统媒体扫描
-            val mediaScanIntent = android.content.Intent(android.content.Intent.ACTION_MEDIA_SCANNER_SCAN_FILE)
-            mediaScanIntent.data = android.net.Uri.fromFile(file)
-            sendBroadcast(mediaScanIntent)
-
-        } catch (e: Exception) {
-            Toast.makeText(this, getString(R.string.save_file_failed, e.message), Toast.LENGTH_SHORT).show()
-        }
+        startActivity(MarkdownExportActivity.forMessageIds(this, selectedIds))
     }
 
     private fun confirmDeleteSession() {

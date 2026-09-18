@@ -168,26 +168,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * 导出聊天记录
-     */
-    fun exportChatHistory() {
-        viewModelScope.launch {
-            try {
-                _isLoading.value = true
-                val exportData = repository.exportChatHistory()
-
-                // 这里可以触发文件保存或分享操作
-                // 为简化实现，这里只是设置成功消息
-                _errorMessage.value = "聊天记录导出成功"
-            } catch (e: Exception) {
-                _errorMessage.value = "导出失败: ${e.message}"
-            } finally {
-                _isLoading.value = false
-            }
-        }
-    }
-
-    /**
      * 切换自动分析设置
      */
     fun toggleAutoAnalyze() {

@@ -13,8 +13,8 @@ android {
         applicationId "com.readassist"
         minSdk 23  // ML Kit 离线文字识别要求 Android 6.0+
         targetSdk 35
-        versionCode 33
-        versionName "1.12.1-dictionary"
+        versionCode 42
+        versionName "1.14.7-supernote-clipboard-bridge"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 

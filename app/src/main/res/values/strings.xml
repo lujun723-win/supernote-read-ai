@@ -74,6 +74,15 @@
     <string name="search_history">搜索历史记录</string>
     <string name="no_history">暂无聊天记录</string>
     <string name="export_history">导出记录</string>
+    <string name="export_current_short">导出</string>
+    <string name="select_conversation">选择这次问答</string>
+    <string name="selected_conversation_count">已选择 %d 次问答</string>
+    <string name="export_selected_conversations">导出所选问答</string>
+    <string name="export_select_at_least_one">请先选择至少一次问答</string>
+    <string name="export_no_complete_conversation">当前没有完整的问答可以导出</string>
+    <string name="export_select_export_folder">首次导出，请选择 Supernote 根目录下的 EXPORT 文件夹</string>
+    <string name="export_folder_not_authorized">未授权 EXPORT 文件夹，导出已取消</string>
+    <string name="export_markdown_success">已导出 %1$d 次问答：EXPORT/%2$s/%3$s</string>
     <string name="session_from">来自：%s</string>
     <string name="messages_count">%d 条消息</string>
 
@@ -125,6 +134,12 @@
     <string name="new_chat">新对话</string>
     <string name="send_screenshot">发送截屏图片</string>
     <string name="region_screenshot">区域截图</string>
+    <string name="ai_capture_text">文字选择</string>
+    <string name="ai_capture_region">区域截图</string>
+    <string name="ai_capture_mode_text_selected">已切换为文字选择</string>
+    <string name="ai_capture_mode_region_selected">已切换为区域截图</string>
+    <string name="ai_wait_selection">请在阅读器中选择文字并复制；下一段新文本会自动打开 AI</string>
+    <string name="supernote_text_selection_manual_required">Supernote 未开放文字工具切换接口，请手动点左侧“文字选择”，然后选择并复制文字</string>
     <string name="region_screenshot_instruction">用笔圈出要分析的区域，松笔后自动截图</string>
     <string name="region_screenshot_too_small">圈选区域太小，请重新圈选</string>
     <string name="region_screenshot_open_failed">无法打开区域截图，请检查悬浮窗权限</string>

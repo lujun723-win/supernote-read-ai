@@ -4,6 +4,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageButton
+import android.widget.CheckBox
 import android.widget.TextView
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
@@ -15,8 +16,11 @@ import java.util.Date
 import java.util.Locale
 
 class ChatMessageAdapter(
-    private val onBookmarkToggle: (ChatEntity, Boolean) -> Unit
+    private val onBookmarkToggle: (ChatEntity, Boolean) -> Unit,
+    private val onSelectionCountChanged: (Int) -> Unit
 ) : ListAdapter<ChatEntity, ChatMessageAdapter.MessageViewHolder>(MessageDiffCallback()) {
+
+    private val selectedMessageIds = mutableSetOf<Long>()
 
     companion object {
         private const val VIEW_TYPE_USER = 1
@@ -49,14 +53,32 @@ class ChatMessageAdapter(
         }
         val message = getItem(messagePosition) // 获取对应的消息
         val isUserMessage = position % 2 == 0
+        val showDateHeader = isUserMessage && (
+            messagePosition == 0 || dayKey(getItem(messagePosition - 1).timestamp) != dayKey(message.timestamp)
+        )
 
-        holder.bind(message, isUserMessage)
+        holder.bind(message, isUserMessage, showDateHeader, message.id in selectedMessageIds) { selected ->
+            if (selected) {
+                selectedMessageIds.add(message.id)
+            } else {
+                selectedMessageIds.remove(message.id)
+            }
+            onSelectionCountChanged(selectedMessageIds.size)
+        }
     }
 
     override fun getItemCount(): Int {
         // 每个数据库条目分为用户消息和AI回复两个视图项
         return super.getItemCount() * 2
     }
+
+    fun getSelectedMessageIds(): LongArray = currentList
+        .filter { it.id in selectedMessageIds }
+        .map { it.id }
+        .toLongArray()
+
+    private fun dayKey(timestamp: Long): String =
+        SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(timestamp))
 
     class MessageViewHolder(
         itemView: View,
@@ -66,12 +88,33 @@ class ChatMessageAdapter(
         private val tvMessage: TextView = itemView.findViewById(R.id.tvMessage)
         private val tvTimestamp: TextView? = itemView.findViewById(R.id.tvTimestamp)
         private val btnBookmark: ImageButton? = itemView.findViewById(R.id.btnBookmark)
+        private val checkSelect: CheckBox? = itemView.findViewById(R.id.checkSelect)
+        private val tvDateHeader: TextView? = itemView.findViewById(R.id.tvDateHeader)
 
         private val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
 
-        fun bind(chatEntity: ChatEntity, isUserMessage: Boolean) {
+        fun bind(
+            chatEntity: ChatEntity,
+            isUserMessage: Boolean,
+            showDateHeader: Boolean,
+            isSelected: Boolean,
+            onSelectionChanged: (Boolean) -> Unit
+        ) {
             // 设置消息内容
             tvMessage.text = if (isUserMessage) chatEntity.userMessage else chatEntity.aiResponse
+
+            tvDateHeader?.apply {
+                visibility = if (showDateHeader) View.VISIBLE else View.GONE
+                text = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+                    .format(Date(chatEntity.timestamp))
+            }
+
+            checkSelect?.apply {
+                visibility = if (isUserMessage) View.VISIBLE else View.GONE
+                setOnCheckedChangeListener(null)
+                isChecked = isSelected
+                setOnCheckedChangeListener { _, checked -> onSelectionChanged(checked) }
+            }
 
             // 设置时间戳 (仅在AI回复中显示)
             tvTimestamp?.text = dateFormat.format(Date(chatEntity.timestamp))

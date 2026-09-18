@@ -6,7 +6,6 @@ import android.view.MenuItem
 import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
-import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.readassist.R
@@ -15,10 +14,6 @@ import com.readassist.database.ChatSessionEntity
 import com.readassist.databinding.ActivityHistoryBinding
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
-import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 class HistoryActivity : BaseActivity() {
 
@@ -160,64 +155,11 @@ class HistoryActivity : BaseActivity() {
     }
 
     private fun exportSession(session: ChatSessionEntity) {
-        lifecycleScope.launch {
-            try {
-                binding.progressBar.visibility = View.VISIBLE
-                val content = app.chatRepository.exportChatHistory(session.sessionId)
-                saveToFile(content, "ReadAssist_${session.bookName}_导出.txt")
-                binding.progressBar.visibility = View.GONE
-            } catch (e: Exception) {
-                binding.progressBar.visibility = View.GONE
-                Toast.makeText(this@HistoryActivity, getString(R.string.export_failed, e.message), Toast.LENGTH_SHORT).show()
-            }
-        }
+        startActivity(MarkdownExportActivity.forSession(this, session.sessionId))
     }
 
     private fun exportAllHistory() {
-        lifecycleScope.launch {
-            try {
-                binding.progressBar.visibility = View.VISIBLE
-                val content = app.chatRepository.exportChatHistory()
-                saveToFile(content, "ReadAssist_全部历史_导出.txt")
-                binding.progressBar.visibility = View.GONE
-            } catch (e: Exception) {
-                binding.progressBar.visibility = View.GONE
-                Toast.makeText(this@HistoryActivity, getString(R.string.export_failed, e.message), Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
-    private fun saveToFile(content: String, suggestedName: String) {
-        try {
-            // 生成带时间戳的文件名
-            val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
-            val fileName = suggestedName.replace(".txt", "_$timestamp.txt")
-
-            // 创建导出目录
-            val exportDir = File(getExternalFilesDir(null), "exports")
-            if (!exportDir.exists()) {
-                exportDir.mkdirs()
-            }
-
-            // 创建文件并写入内容
-            val file = File(exportDir, fileName)
-            file.writeText(content)
-
-            // 显示成功消息
-            Toast.makeText(
-                this,
-                getString(R.string.export_success, file.absolutePath),
-                Toast.LENGTH_LONG
-            ).show()
-
-            // 可选：触发系统媒体扫描
-            val mediaScanIntent = android.content.Intent(android.content.Intent.ACTION_MEDIA_SCANNER_SCAN_FILE)
-            mediaScanIntent.data = android.net.Uri.fromFile(file)
-            sendBroadcast(mediaScanIntent)
-
-        } catch (e: Exception) {
-            Toast.makeText(this, getString(R.string.save_file_failed, e.message), Toast.LENGTH_SHORT).show()
-        }
+        startActivity(MarkdownExportActivity.forAll(this))
     }
 
     private fun confirmDeleteSession(session: ChatSessionEntity) {
@@ -258,52 +200,6 @@ class HistoryActivity : BaseActivity() {
     }
 
     private fun exportFilteredSessions(archived: Boolean) {
-        lifecycleScope.launch {
-            try {
-                binding.progressBar.visibility = View.VISIBLE
-
-                // 获取会话列表
-                val sessionsFlow = if (archived) {
-                    app.chatRepository.getAllSessions()
-                } else {
-                    app.chatRepository.getActiveSessions()
-                }
-
-                val sessions = sessionsFlow.collectLatest { sessionList ->
-                    val filteredSessions = if (archived) {
-                        sessionList.filter { it.isArchived }
-                    } else {
-                        sessionList.filter { !it.isArchived }
-                    }
-
-                    if (filteredSessions.isEmpty()) {
-                        binding.progressBar.visibility = View.GONE
-                        Toast.makeText(this@HistoryActivity, getString(R.string.no_sessions_to_export), Toast.LENGTH_SHORT).show()
-                        return@collectLatest
-                    }
-
-                    // 构建导出内容
-                    var content = "ReadAssist 聊天记录导出\n"
-                    content += "导出时间: ${Date()}\n"
-                    content += "包含: ${if (archived) "归档会话" else "活跃会话"}\n"
-                    content += "=".repeat(50) + "\n\n"
-
-                    for (session in filteredSessions) {
-                        // 导出每个会话的内容
-                        content += app.chatRepository.exportChatHistory(session.sessionId)
-                        content += "\n" + "=".repeat(50) + "\n\n"
-                    }
-
-                    saveToFile(
-                        content,
-                        "ReadAssist_${if (archived) "归档会话" else "活跃会话"}_导出.txt"
-                    )
-                    binding.progressBar.visibility = View.GONE
-                }
-            } catch (e: Exception) {
-                binding.progressBar.visibility = View.GONE
-                Toast.makeText(this@HistoryActivity, getString(R.string.export_failed, e.message), Toast.LENGTH_SHORT).show()
-            }
-        }
+        startActivity(MarkdownExportActivity.forArchivedState(this, archived))
     }
 }

@@ -9,6 +9,7 @@ import androidx.security.crypto.MasterKey
 import com.readassist.R
 import com.readassist.model.AiPlatform
 import com.readassist.model.AiModel
+import com.readassist.model.AiCaptureMode
 import com.readassist.model.DictionaryCaptureMode
 import com.readassist.model.OcrLanguage
 import java.security.GeneralSecurityException
@@ -39,6 +40,7 @@ class PreferenceManager(private val context: Context) {
         private const val KEY_SCREENSHOT_RESULT_DATA = "screenshot_result_data"
         private const val KEY_AI_SETUP_COMPLETED = "ai_setup_completed"
         private const val KEY_APP_LANGUAGE = "app_language"
+        private const val KEY_AI_CAPTURE_MODE = "ai_capture_mode"
         private const val KEY_DICTIONARY_CAPTURE_MODE = "dictionary_capture_mode"
         private const val KEY_OCR_LANGUAGE = "dictionary_ocr_language"
 
@@ -418,6 +420,15 @@ class PreferenceManager(private val context: Context) {
     fun getAppLanguage(): String {
         return normalPrefs.getString(KEY_APP_LANGUAGE, "system") ?: "system"
     }
+
+    fun setAiCaptureMode(mode: AiCaptureMode) {
+        normalPrefs.edit().putString(KEY_AI_CAPTURE_MODE, mode.storedValue).apply()
+    }
+
+    fun getAiCaptureMode(): AiCaptureMode = AiCaptureMode.fromStoredValue(
+        normalPrefs.getString(KEY_AI_CAPTURE_MODE, AiCaptureMode.TEXT_SELECTION.storedValue)
+            ?: AiCaptureMode.TEXT_SELECTION.storedValue
+    )
 
     fun setDictionaryCaptureMode(mode: DictionaryCaptureMode) {
         normalPrefs.edit().putString(KEY_DICTIONARY_CAPTURE_MODE, mode.storedValue).apply()

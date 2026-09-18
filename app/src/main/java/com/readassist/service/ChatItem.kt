@@ -8,5 +8,6 @@ data class ChatItem(
     val aiMessage: String,
     val isUserMessage: Boolean,
     val isLoading: Boolean = false,
-    val isError: Boolean = false
+    val isError: Boolean = false,
+    val isSystem: Boolean = false
 )

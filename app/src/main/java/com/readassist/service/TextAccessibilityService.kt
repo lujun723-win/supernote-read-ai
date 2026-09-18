@@ -9,6 +9,7 @@ import android.content.IntentFilter
 import android.database.ContentObserver
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Rect
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -435,7 +436,12 @@ class TextAccessibilityService : AccessibilityService() {
         val txt = node.text?.toString() ?: ""
         val desc = node.contentDescription?.toString() ?: ""
         val id = node.viewIdResourceName ?: ""
-        sb.append("$indent- cls=$cls id=$id text=${txt.take(40)} desc=${desc.take(40)}\n")
+        val bounds = Rect()
+        node.getBoundsInScreen(bounds)
+        sb.append(
+            "$indent- cls=$cls id=$id text=${txt.take(40)} desc=${desc.take(40)} " +
+                "clickable=${node.isClickable} actions=${node.actionList.map { it.id }} bounds=$bounds\n"
+        )
         for (i in 0 until node.childCount) {
             val child = node.getChild(i) ?: continue
             try {

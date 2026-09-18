@@ -20,6 +20,15 @@ interface ChatDao {
     @Query("SELECT * FROM chat_messages WHERE sessionId = :sessionId ORDER BY timestamp ASC")
     fun getChatMessagesBySession(sessionId: String): Flow<List<ChatEntity>>
 
+    @Query("SELECT * FROM chat_messages WHERE id IN (:messageIds) ORDER BY timestamp ASC")
+    suspend fun getChatMessagesByIds(messageIds: List<Long>): List<ChatEntity>
+
+    @Query("SELECT * FROM chat_messages ORDER BY timestamp ASC")
+    suspend fun getAllChatMessagesForExport(): List<ChatEntity>
+
+    @Query("SELECT chat_messages.* FROM chat_messages INNER JOIN chat_sessions ON chat_messages.sessionId = chat_sessions.sessionId WHERE chat_sessions.isArchived = :archived ORDER BY chat_messages.timestamp ASC")
+    suspend fun getChatMessagesByArchiveState(archived: Boolean): List<ChatEntity>
+
     @Query("SELECT * FROM chat_messages WHERE isBookmarked = 1 ORDER BY timestamp DESC")
     fun getBookmarkedMessages(): Flow<List<ChatEntity>>
 
