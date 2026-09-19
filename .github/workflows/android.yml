@@ -38,11 +38,13 @@ jobs:
     - name: Upload lightweight APK
       uses: actions/upload-artifact@v4
       with:
-        name: ReadAssist-v1.12.1-light
-        path: app/build/outputs/apk/deepseek/ReadAssist-v1.12.1-dictionary-deepseek.apk
+        name: ReadAssist-light
+        path: app/build/outputs/apk/deepseek/*.apk
+        if-no-files-found: error
 
     - name: Upload ECDICT APK
       uses: actions/upload-artifact@v4
       with:
-        name: ReadAssist-v1.12.1-full-ecdict
-        path: app/build/outputs/apk/deepseekBundled/ReadAssist-v1.12.1-dictionary-deepseekBundled.apk
+        name: ReadAssist-full-ecdict
+        path: app/build/outputs/apk/deepseekBundled/*.apk
+        if-no-files-found: error
