@@ -6,18 +6,18 @@
 >
 > 本项目基于 [James-Zhu-CA/ReadAssist](https://github.com/James-Zhu-CA/ReadAssist) 进行二次修改，原项目采用 MIT License。本仓库不是原项目的官方版本，也不代表原作者立场；原项目版权声明和 MIT 许可证保留在 [LICENSE](LICENSE) 中。
 
-当前源码版本：`1.14.7-supernote-clipboard-bridge`
+当前版本：`1.14.8-supernote-selection-fix`
 
 ## 下载选择
 
-请从 [GitHub Releases](https://github.com/lujun723-win/supernote-read-ai/releases) 下载：
+从 [GitHub Releases](https://github.com/lujun723-win/supernote-read-ai/releases) 下载 1.14.8；不要继续使用 1.14.7，旧版的禁写区实现会干扰 Supernote 文字选择。
 
 | 文件 | 适用情况 |
 | --- | --- |
-| `ReadAssist-v1.14.7-supernote-clipboard-bridge-deepseekBundled.apk` | 推荐。内置 3,402,564 词的 ECDICT，安装后在设置页一键部署 |
-| `ReadAssist-v1.14.7-supernote-clipboard-bridge-deepseek.apk` | 体积较小，不带词库，需要自行导入 StarDict |
+| `ReadAssist-v1.14.8-supernote-selection-fix-deepseekBundled.apk` | 推荐。内置 3,402,564 词的 ECDICT，安装后在设置页一键部署 |
+| `ReadAssist-v1.14.8-supernote-selection-fix-deepseek.apk` | 体积较小，不带词库，需要自行导入 StarDict |
 
-两个 APK 的应用 ID 相同，可以互相覆盖安装；不要同时安装。发布包使用 Android 调试证书签名，仅适合侧载使用。
+两个 1.14.8 APK 的应用 ID 相同，可以互相覆盖安装；不要同时安装。发布包使用 Android 调试证书签名，仅适合侧载使用。此前 1.14.7 的签名与本版不同，无法直接覆盖安装；卸载旧版会清除其应用内设置、词典部署和历史记录。请先导出需要保留的阅读记录，再决定是否卸载旧版。
 
 ## 主要修改
 
@@ -35,8 +35,10 @@
 - 对话窗口只显示本次问题和 AI 回答，完整记录保存在“历史记录”中。
 - 点击“新对话”后保存上一轮并清空当前窗口；关闭再打开不会恢复刚刚清空的旧对话。
 - 当前问答可直接导出；历史记录支持按文档、日期查看并多选导出。文件保存到 `EXPORT/日期/` 下，格式为 Markdown。
-- 通过 Supernote 手写服务为 `AI`、`翻`、取消按钮、区域选择层及弹窗注册禁写区域；即使当前使用书写笔，操作这些控件也不会在底层文档留下笔迹。
-- 区域截图期间隔离 Supernote 的悬停剪贴板事件，避免透明窗口、弹窗竞争和服务退出。
+- 不再向 Supernote 文档的共享手写会话写入禁写区域，避免文字选择时在底层文档留下笔迹。
+- 剪贴板事件只由当前等待文字选择的 `AI` 或 `翻` 处理；晚到的悬停事件不再在翻译窗口上叠出 AI 窗口。
+- 修正双击 `翻` 进入文字选择时词典窗口先闪现的问题；现在先等待选字和复制，再读取本次内容。
+- 区域截图期间隔离 Supernote 的悬停剪贴板事件，避免与截图流程竞争。
 - 修正独立包名下的无障碍服务识别与授权状态判断。
 - 移除旧版自动监听并发送整屏截图的功能；图片只来自用户主动发起的区域圈选。
 - 调整按钮、输入框和弹窗布局，使其更适合黑白墨水屏。
@@ -119,17 +121,17 @@ Supernote 当前固件没有向第三方开放“切换到文字选择工具”�
 生成的 APK 位于：
 
 ```text
-app/build/outputs/apk/deepseek/ReadAssist-v1.14.7-supernote-clipboard-bridge-deepseek.apk
-app/build/outputs/apk/deepseekBundled/ReadAssist-v1.14.7-supernote-clipboard-bridge-deepseekBundled.apk
+app/build/outputs/apk/deepseek/ReadAssist-v1.14.8-supernote-selection-fix-deepseek.apk
+app/build/outputs/apk/deepseekBundled/ReadAssist-v1.14.8-supernote-selection-fix-deepseekBundled.apk
 ```
 
 通过 ADB 安装：
 
 ```bash
-adb install -r app/build/outputs/apk/deepseekBundled/ReadAssist-v1.14.7-supernote-clipboard-bridge-deepseekBundled.apk
+adb install -r app/build/outputs/apk/deepseekBundled/ReadAssist-v1.14.8-supernote-selection-fix-deepseekBundled.apk
 ```
 
-`deepseek` 和 `deepseekBundled` 使用相同应用 ID `com.readassist.deepseek`，可互相覆盖升级，并可与原版 ReadAssist 并存。公开仓库不包含发布密钥或签名文件；如需正式发布，请自行配置签名。
+`deepseek` 和 `deepseekBundled` 使用相同应用 ID `com.readassist.deepseek`，同一证书签名时可互相覆盖升级。1.14.7 与本版的证书不同，不能用上面的命令直接覆盖。公开仓库不包含签名密钥；自行构建时生成的调试证书也可能与 Releases 中的证书不同。
 
 内置词库源文件为 `ecdict-stardict-28.zip`，SHA-256：
 

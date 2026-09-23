@@ -72,10 +72,7 @@ import com.readassist.utils.PreferenceManager
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import com.readassist.ui.DeviceSetupActivity
 import com.readassist.R
-import com.readassist.supernote.SupernoteHandwritingGuard
-import android.view.View
 import android.view.WindowManager
-import android.view.Gravity
 import android.os.Handler
 
 /**
@@ -176,7 +173,6 @@ class FloatingWindowServiceNew : Service(),
     private lateinit var aiCommunicationManager: AiCommunicationManager
     private lateinit var dictionaryWindowManager: DictionaryWindowManager
     private lateinit var offlineDictionaryManager: OfflineDictionaryManager
-    private lateinit var supernoteHandwritingGuard: SupernoteHandwritingGuard
     private val offlineOcrManager = OfflineOcrManager()
 
     // 应用实例和协程作用域
@@ -290,11 +286,7 @@ class FloatingWindowServiceNew : Service(),
                             showAiWithSelectedText(clipboardText)
                             return
                         }
-                        // 直接显示聊天窗口并填充文本，无需提示
-                        chatWindowManager.showChatWindow()
-                        chatWindowManager.importTextToInputField(clipboardText)
-
-                        Log.d(TAG, "📋 前台服务剪贴板内容已直接导入到聊天窗口")
+                        Log.d(TAG, "📋 当前没有文字选择请求，忽略剪贴板弹窗广播")
                     } else {
                         Log.d(TAG, "📋 前台服务剪贴板内容为空")
                     }
@@ -350,13 +342,7 @@ class FloatingWindowServiceNew : Service(),
                         openAiWindowAndReadClipboard()
                         return
                     }
-                    Log.e(TAG, "🔴🔴🔴 使用透明权限获取窗口访问剪贴板: LEGACY")
-                    try {
-                        createTransparentPermissionWindow(ClipboardWindowPurpose.LEGACY)
-                        Log.e(TAG, "🔴 透明权限获取窗口创建请求已发送")
-                    } catch (e: Exception) {
-                        Log.e(TAG, "🔴 创建透明权限获取窗口时发生异常: ${e.message}", e)
-                    }
+                    Log.d(TAG, "📋 当前没有文字选择请求，忽略悬停剪贴板检查")
                 }
                 else -> {
                     Log.e(TAG, "🔴 收到未知的广播action: ${intent?.action}")
@@ -379,14 +365,10 @@ class FloatingWindowServiceNew : Service(),
     // 新增：记录上一次截屏的文件路径
     private var lastScreenshotFile: File? = null
 
-    // 透明权限获取窗口相关
-    private var transparentPermissionWindow: View? = null
-    private var windowManager: WindowManager? = null
     private val clipboardAccessHandler = Handler(Looper.getMainLooper())
-    private var pendingClipboardAccess: Runnable? = null
-    private enum class ClipboardWindowPurpose { LEGACY }
     private data class ClipboardSnapshot(val timestamp: Long, val textHash: Int)
     private var dictionaryClipboardBaseline: ClipboardSnapshot? = null
+    private var dictionarySelectionStartedAt = 0L
     private var dictionaryCopySignalSeen = false
     private var aiSelectionStartedAt = 0L
     private var aiCopySignalSeen = false
@@ -463,11 +445,6 @@ class FloatingWindowServiceNew : Service(),
             Log.e(TAG, "🔴 开始初始化PreferenceManager")
             preferenceManager = PreferenceManager(applicationContext)
             Log.e(TAG, "🔴 PreferenceManager初始化成功")
-
-            // 初始化WindowManager
-            Log.e(TAG, "🔴 开始初始化WindowManager")
-            windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
-            Log.e(TAG, "🔴 WindowManager初始化成功: $windowManager")
 
             // 初始化各个管理器
             Log.e(TAG, "🔴 开始初始化各个管理器")
@@ -550,8 +527,6 @@ class FloatingWindowServiceNew : Service(),
     private fun initializeManagers() {
         Log.e(TAG, "🔴 initializeManagers() 开始执行")
         Log.e(TAG, "🔴 初始化会话管理器")
-
-        supernoteHandwritingGuard = SupernoteHandwritingGuard(this)
 
         // 初始化会话管理器
         sessionManager = SessionManager(
@@ -733,12 +708,6 @@ class FloatingWindowServiceNew : Service(),
         }
         chatWindowManager?.hideChatWindow()
         floatingButtonManager?.removeButton()
-        if (::supernoteHandwritingGuard.isInitialized) {
-            supernoteHandwritingGuard.clear()
-        }
-
-        // 清理透明权限获取窗口
-        removeTransparentPermissionWindow()
         pendingDictionaryClipboardRead?.let(clipboardAccessHandler::removeCallbacks)
         pendingDictionaryClipboardRead = null
         pendingAiClipboardRead?.let(clipboardAccessHandler::removeCallbacks)
@@ -760,6 +729,8 @@ class FloatingWindowServiceNew : Service(),
         aiCopySignalSeen = false
         aiSelectionStartedAt = 0L
         isDictionaryTextSelectionPending = false
+        pendingDictionaryClipboardRead?.let(clipboardAccessHandler::removeCallbacks)
+        pendingDictionaryClipboardRead = null
         floatingButtonManager.setDictionaryWaiting(false)
         dictionaryWindowManager.hide()
         if (!aiConfigurationManager.isConfigurationValid()) {
@@ -1650,7 +1621,6 @@ class FloatingWindowServiceNew : Service(),
      */
     override fun onChatWindowShown() {
         Log.d(TAG, "聊天窗口已显示")
-        supernoteHandwritingGuard.setFullScreenOverlayVisible("chat", true)
         // 注册勾选项监听
         chatWindowManager.setOnCheckStateChangedListener(object : ChatWindowManager.OnCheckStateChangedListener {
             override fun onCheckStateChanged() {
@@ -1774,7 +1744,6 @@ class FloatingWindowServiceNew : Service(),
     }
 
     override fun onChatWindowHidden() {
-        supernoteHandwritingGuard.setFullScreenOverlayVisible("chat", false)
         // 如果按钮不在边缘，移动到边缘
         if (!floatingButtonManager.isAtEdge() && !floatingButtonManager.isMoved()) {
             floatingButtonManager.restoreToEdge()
@@ -1838,10 +1807,13 @@ class FloatingWindowServiceNew : Service(),
         isAiTextSelectionPending = false
         aiCopySignalSeen = false
         aiSelectionStartedAt = 0L
+        pendingAiClipboardRead?.let(clipboardAccessHandler::removeCallbacks)
+        pendingAiClipboardRead = null
         isDictionaryTextSelectionPending = false
+        pendingDictionaryClipboardRead?.let(clipboardAccessHandler::removeCallbacks)
+        pendingDictionaryClipboardRead = null
         floatingButtonManager.setDictionaryWaiting(false)
         screenshotManager.startMonitoring()
-        removeTransparentPermissionWindow()
         chatWindowManager.hideChatWindow()
         dictionaryWindowManager.hide()
         floatingButtonManager.setButtonVisibility(false)
@@ -1874,10 +1846,6 @@ class FloatingWindowServiceNew : Service(),
         finishRegionCapture()
         floatingButtonManager.setButtonVisibility(true)
         floatingButtonManager.restoreDefaultState()
-    }
-
-    override fun onRegionSelectionWindowVisibilityChanged(visible: Boolean) {
-        supernoteHandwritingGuard.setFullScreenOverlayVisible("region_selection", visible)
     }
 
     override fun onConfigStatusClick(platform: com.readassist.model.AiPlatform?) {
@@ -1937,7 +1905,8 @@ class FloatingWindowServiceNew : Service(),
         isDictionaryTextSelectionPending = false
         floatingButtonManager.setDictionaryWaiting(false)
         dictionaryWindowManager.hide()
-        removeTransparentPermissionWindow()
+        pendingDictionaryClipboardRead?.let(clipboardAccessHandler::removeCallbacks)
+        pendingDictionaryClipboardRead = null
         pendingAiClipboardRead?.let(clipboardAccessHandler::removeCallbacks)
         pendingAiClipboardRead = null
         isAiTextSelectionPending = false
@@ -1965,10 +1934,13 @@ class FloatingWindowServiceNew : Service(),
         isAiTextSelectionPending = false
         aiCopySignalSeen = false
         aiSelectionStartedAt = 0L
+        pendingAiClipboardRead?.let(clipboardAccessHandler::removeCallbacks)
+        pendingAiClipboardRead = null
         isDictionaryTextSelectionPending = false
+        pendingDictionaryClipboardRead?.let(clipboardAccessHandler::removeCallbacks)
+        pendingDictionaryClipboardRead = null
         floatingButtonManager.setDictionaryWaiting(false)
         chatWindowManager.hideChatWindow()
-        pendingDictionaryClipboardRead?.let(clipboardAccessHandler::removeCallbacks)
         dictionaryWindowManager.show(showKeyboard = false)
         if (offlineDictionaryManager.isImporting) {
             dictionaryWindowManager.showError(getString(R.string.dictionary_import_in_progress))
@@ -1999,32 +1971,17 @@ class FloatingWindowServiceNew : Service(),
         startDictionaryRegionOcr()
     }
 
-    override fun onDictionaryWindowVisibilityChanged(visible: Boolean) {
-        supernoteHandwritingGuard.setFullScreenOverlayVisible("dictionary", visible)
-    }
-
-    override fun onFloatingButtonBoundsChanged(bounds: Rect?) {
-        supernoteHandwritingGuard.setFloatingButtonBounds(bounds)
-    }
-
     private fun startDictionaryTextSelection() {
         preferenceManager.setDictionaryCaptureMode(DictionaryCaptureMode.TEXT_SELECTION)
         isAiTextSelectionPending = false
         aiCopySignalSeen = false
-        removeTransparentPermissionWindow()
+        pendingAiClipboardRead?.let(clipboardAccessHandler::removeCallbacks)
+        pendingAiClipboardRead = null
         pendingDictionaryClipboardRead?.let(clipboardAccessHandler::removeCallbacks)
         pendingDictionaryClipboardRead = null
         chatWindowManager.hideChatWindow()
-
-        if (dictionaryWindowManager.isShowing()) {
-            beginDictionaryTextSelection(readClipboardSnapshot())
-        } else {
-            dictionaryWindowManager.show(showKeyboard = false)
-            pendingDictionaryClipboardRead = Runnable {
-                pendingDictionaryClipboardRead = null
-                beginDictionaryTextSelection(readClipboardSnapshot())
-            }.also { clipboardAccessHandler.postDelayed(it, 250) }
-        }
+        dictionarySelectionStartedAt = System.currentTimeMillis()
+        beginDictionaryTextSelection(readClipboardSnapshot())
     }
 
     private fun beginDictionaryTextSelection(baseline: Pair<ClipboardSnapshot?, String?>) {
@@ -2034,16 +1991,20 @@ class FloatingWindowServiceNew : Service(),
         dictionaryWindowManager.hide()
         floatingButtonManager.setDictionaryWaiting(true)
         Toast.makeText(this, getString(R.string.dictionary_wait_selection), Toast.LENGTH_LONG).show()
-        Log.d(TAG, "📖 已在词典窗口前台态记录剪贴板基线: ${baseline.first}")
+        Log.d(TAG, "📖 已记录本次查词的剪贴板基线: ${baseline.first}")
     }
 
     private fun openDictionaryWindowAndReadClipboard() {
+        if (!isDictionaryTextSelectionPending) return
         pendingDictionaryClipboardRead?.let(clipboardAccessHandler::removeCallbacks)
         dictionaryWindowManager.show(showKeyboard = false)
         pendingDictionaryClipboardRead = Runnable {
             pendingDictionaryClipboardRead = null
+            if (!isDictionaryTextSelectionPending) return@Runnable
             val (snapshot, text) = readClipboardSnapshot()
-            val changed = snapshot != null && snapshot != dictionaryClipboardBaseline
+            val changed = snapshot != null && snapshot != dictionaryClipboardBaseline &&
+                (Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
+                    snapshot.timestamp >= dictionarySelectionStartedAt)
             if (changed && !text.isNullOrBlank()) {
                 dictionaryCopySignalSeen = false
                 showDictionaryAndLookup(text)
@@ -2058,10 +2019,12 @@ class FloatingWindowServiceNew : Service(),
     }
 
     private fun openAiWindowAndReadClipboard() {
+        if (!isAiTextSelectionPending) return
         pendingAiClipboardRead?.let(clipboardAccessHandler::removeCallbacks)
         chatWindowManager.showChatWindow()
         pendingAiClipboardRead = Runnable {
             pendingAiClipboardRead = null
+            if (!isAiTextSelectionPending) return@Runnable
             val (snapshot, text) = readClipboardSnapshot()
             val changed = snapshot != null &&
                 snapshot.timestamp >= aiSelectionStartedAt &&
@@ -2286,96 +2249,6 @@ class FloatingWindowServiceNew : Service(),
         chatWindowManager.showApiKeyInputDialog(platform)
     }
 
-    /**
-     * 创建透明权限获取窗口
-     * 用于获取剪贴板访问权限，用户完全感知不到
-     */
-    private fun createTransparentPermissionWindow(
-        purpose: ClipboardWindowPurpose = ClipboardWindowPurpose.LEGACY
-    ) {
-        Log.d(TAG, "🔴 开始创建透明权限获取窗口: $purpose")
-
-        try {
-            // 如果已有透明窗口，先移除
-            removeTransparentPermissionWindow()
-
-            // 创建完全透明的视图
-            transparentPermissionWindow = View(this).apply {
-                setBackgroundColor(android.R.color.transparent)
-                alpha = 0.0f // 完全透明
-            }
-
-            // 设置窗口参数
-            val params = WindowManager.LayoutParams().apply {
-                type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-                } else {
-                    WindowManager.LayoutParams.TYPE_PHONE
-                }
-
-                flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                        WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-                        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
-                        WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
-
-                width = 1
-                height = 1
-                gravity = Gravity.TOP or Gravity.START
-                x = 0
-                y = 0
-            }
-
-            // 添加透明窗口到系统
-            windowManager?.addView(transparentPermissionWindow, params)
-            Log.d(TAG, "🔴 透明权限获取窗口已创建")
-
-            // 延迟访问剪贴板，给系统时间处理窗口创建
-            pendingClipboardAccess = Runnable {
-                pendingClipboardAccess = null
-                accessClipboardWithTransparentWindow(purpose)
-            }.also { clipboardAccessHandler.postDelayed(it, 200) }
-
-        } catch (e: Exception) {
-            Log.e(TAG, "🔴 创建透明权限获取窗口失败: ${e.message}", e)
-            removeTransparentPermissionWindow()
-        }
-    }
-
-    /**
-     * 使用透明窗口访问剪贴板
-     */
-    private fun accessClipboardWithTransparentWindow(purpose: ClipboardWindowPurpose) {
-        Log.d(TAG, "🔴 透明窗口开始访问剪贴板: $purpose")
-
-        if (isRegionCaptureInProgress) {
-            Log.d(TAG, "区域截图进行中，取消延迟的剪贴板读取")
-            removeTransparentPermissionWindow()
-            return
-        }
-
-        try {
-            val (snapshot, clipboardText) = readClipboardSnapshot()
-            Log.d(TAG, "🔴 透明窗口剪贴板快照: $snapshot")
-
-            when (purpose) {
-                ClipboardWindowPurpose.LEGACY -> {
-                    if (!clipboardText.isNullOrBlank()) {
-                        chatWindowManager.showChatWindow()
-                        chatWindowManager.importTextToInputField(clipboardText)
-                    } else {
-                        Log.d(TAG, "🔴 透明窗口剪贴板无内容，不启动聊天窗口")
-                    }
-                }
-            }
-
-        } catch (e: Exception) {
-            Log.e(TAG, "🔴 透明窗口剪贴板访问失败: ${e.message}", e)
-        } finally {
-            // 立即移除透明窗口
-            removeTransparentPermissionWindow()
-        }
-    }
-
     private fun finishRegionCapture() {
         if (!isRegionCaptureInProgress) return
 
@@ -2383,21 +2256,4 @@ class FloatingWindowServiceNew : Service(),
         screenshotManager.stopMonitoring()
     }
 
-    /**
-     * 移除透明权限获取窗口
-     */
-    private fun removeTransparentPermissionWindow() {
-        pendingClipboardAccess?.let(clipboardAccessHandler::removeCallbacks)
-        pendingClipboardAccess = null
-        try {
-            transparentPermissionWindow?.let { window ->
-                windowManager?.removeView(window)
-                Log.d(TAG, "🔴 透明权限获取窗口已移除")
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "🔴 移除透明权限获取窗口失败: ${e.message}", e)
-        } finally {
-            transparentPermissionWindow = null
-        }
-    }
 }

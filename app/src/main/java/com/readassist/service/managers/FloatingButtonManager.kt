@@ -2,7 +2,6 @@ package com.readassist.service.managers
 
 import android.content.Context
 import android.graphics.PixelFormat
-import android.graphics.Rect
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -41,7 +40,6 @@ class FloatingButtonManager(
         fun onAiButtonDoubleClick()
         fun onDictionaryButtonClick()
         fun onDictionaryButtonDoubleClick()
-        fun onFloatingButtonBoundsChanged(bounds: Rect?)
     }
 
     // 视图和布局参数
@@ -151,7 +149,6 @@ class FloatingButtonManager(
 
             // 添加到窗口管理器
             windowManager.addView(floatingButton, floatingButtonParams)
-            notifyButtonBoundsChanged()
             Log.e(TAG, "addView success, Floating button created")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to create floating button", e)
@@ -171,7 +168,6 @@ class FloatingButtonManager(
                 aiButton = null
                 dictionaryButton = null
                 floatingButtonParams = null
-                callbacks.onFloatingButtonBoundsChanged(null)
                 Log.e(TAG, "Floating button removed")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to remove floating button", e)
@@ -288,8 +284,6 @@ class FloatingButtonManager(
                             preferenceManager.setFloatingButtonPosition(params.x, params.y)
                             Log.e(TAG, "📍 保存拖拽后位置: (${params.x}, ${params.y})")
                         }
-                        notifyButtonBoundsChanged()
-
                         // 更新按钮状态：不再在边缘
                         isButtonAtEdge = false
                         isButtonMoved = true
@@ -378,11 +372,9 @@ class FloatingButtonManager(
                         button.visibility = View.VISIBLE
                     // 总是恢复默认样式，确保按钮状态正确
                         restoreDefaultState()
-                        notifyButtonBoundsChanged()
                 } else {
                         Log.e(TAG, "设置按钮不可见")
                         button.visibility = View.INVISIBLE // 使用INVISIBLE而不是GONE，保留布局位置
-                        callbacks.onFloatingButtonBoundsChanged(null)
                 }
             }
         } catch (e: Exception) {
@@ -432,7 +424,6 @@ class FloatingButtonManager(
             }
 
             windowManager.updateViewLayout(floatingButton, floatingButtonParams)
-            notifyButtonBoundsChanged()
             isButtonMoved = true
             isButtonAtEdge = false
 
@@ -461,7 +452,6 @@ class FloatingButtonManager(
             }
 
             windowManager.updateViewLayout(floatingButton, floatingButtonParams)
-            notifyButtonBoundsChanged()
             isButtonMoved = false
             isButtonAtEdge = true
 
@@ -521,31 +511,4 @@ class FloatingButtonManager(
      */
     fun isMoved(): Boolean = isButtonMoved
 
-    private fun notifyButtonBoundsChanged() {
-        val button = floatingButton
-        if (button == null || button.visibility != View.VISIBLE) {
-            callbacks.onFloatingButtonBoundsChanged(null)
-            return
-        }
-        // WindowManager 可能会把贴边窗口限制在屏幕内，LayoutParams.x/y 不一定是最终位置。
-        // 等布局完成后读取控件真实边界，避免禁写区只覆盖到屏幕边缘的几像素。
-        button.post {
-            if (floatingButton !== button ||
-                button.visibility != View.VISIBLE ||
-                !button.isAttachedToWindow
-            ) {
-                return@post
-            }
-            val location = IntArray(2)
-            button.getLocationOnScreen(location)
-            callbacks.onFloatingButtonBoundsChanged(
-                Rect(
-                    location[0],
-                    location[1],
-                    location[0] + button.width,
-                    location[1] + button.height
-                )
-            )
-        }
-    }
 }
