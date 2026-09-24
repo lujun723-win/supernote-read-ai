@@ -383,6 +383,30 @@
             android:background="#F5F5F5"
             android:layout_marginBottom="8dp" />
 
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/vocabulary_level_title"
+            android:textSize="16sp"
+            android:textColor="#000000"
+            android:textStyle="bold"
+            android:paddingBottom="4dp" />
+
+        <Spinner
+            android:id="@+id/vocabularyLevelSpinner"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:background="#F5F5F5"
+            android:layout_marginBottom="4dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/vocabulary_level_summary"
+            android:textSize="12sp"
+            android:textColor="#666666"
+            android:paddingBottom="12dp" />
+
         <Button
             android:id="@+id/btnInstallBundledEcdict"
             android:layout_width="match_parent"

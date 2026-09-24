@@ -48,6 +48,30 @@
     <string name="analyze_text">Analyze Text</string>
     <string name="dictionary_select_text">Select text</string>
     <string name="dictionary_region_ocr">Region OCR</string>
+    <string name="dictionary_capture_vocabulary">Scan and annotate vocabulary on this page</string>
+    <string name="dictionary_region_short">OCR</string>
+    <string name="dictionary_vocabulary_short">V</string>
+    <string name="vocabulary_level_title">Vocabulary hint threshold</string>
+    <string name="vocabulary_level_summary">Up to 20 words at this level or harder; use the widest reader line spacing</string>
+    <string name="vocabulary_level_primary">Primary school and above</string>
+    <string name="vocabulary_level_junior_high">Junior high and above</string>
+    <string name="vocabulary_level_senior_high">Senior high and above</string>
+    <string name="vocabulary_level_cet4">CET-4 and above</string>
+    <string name="vocabulary_level_cet6">CET-6 and above</string>
+    <string name="vocabulary_level_postgraduate">Postgraduate exam and above</string>
+    <string name="vocabulary_level_ielts_toefl">IELTS / TOEFL</string>
+    <string name="vocabulary_scan_page">Hints</string>
+    <string name="vocabulary_clear_hints">Clear</string>
+    <string name="vocabulary_scanning">Scanning vocabulary on this page…</string>
+    <string name="vocabulary_no_hints">No words at the selected level were found on this page</string>
+    <plurals name="vocabulary_hints_found">
+        <item quantity="one">Marked %d word</item>
+        <item quantity="other">Marked %d words</item>
+    </plurals>
+    <string name="vocabulary_hints_cleared">Vocabulary hints cleared</string>
+    <string name="vocabulary_hints_hide">Hide</string>
+    <string name="vocabulary_hints_show">Show</string>
+    <string name="vocabulary_scan_failed">Vocabulary scan failed: %s</string>
     <string name="dictionary_import_in_progress">The dictionary is being imported and indexed. Try again after it finishes.</string>
 
     <!-- Chat Related -->

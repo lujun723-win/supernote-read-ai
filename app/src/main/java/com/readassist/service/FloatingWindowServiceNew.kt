@@ -48,8 +48,11 @@ import com.readassist.service.managers.RegionSelection
 import com.readassist.service.managers.SessionManager
 import com.readassist.service.managers.TextSelectionManager
 import com.readassist.service.managers.DictionaryWindowManager
+import com.readassist.service.managers.VocabularyOverlayManager
 import com.readassist.dictionary.OfflineDictionaryManager
 import com.readassist.dictionary.OfflineOcrManager
+import com.readassist.dictionary.VocabularyHintIndex
+import com.readassist.dictionary.VocabularyHintSelector
 import com.readassist.model.DictionaryCaptureMode
 import com.readassist.model.AiCaptureMode
 import com.readassist.ui.MainActivity
@@ -172,6 +175,8 @@ class FloatingWindowServiceNew : Service(),
     private lateinit var aiConfigurationManager: AiConfigurationManager
     private lateinit var aiCommunicationManager: AiCommunicationManager
     private lateinit var dictionaryWindowManager: DictionaryWindowManager
+    private lateinit var vocabularyOverlayManager: VocabularyOverlayManager
+    private lateinit var vocabularyHintSelector: VocabularyHintSelector
     private lateinit var offlineDictionaryManager: OfflineDictionaryManager
     private val offlineOcrManager = OfflineOcrManager()
 
@@ -265,7 +270,7 @@ class FloatingWindowServiceNew : Service(),
     // 前台服务直接剪贴板检测广播接收器
     private val directClipboardReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            if (isRegionCaptureInProgress) {
+            if (isRegionCaptureInProgress || isVocabularyCaptureInProgress) {
                 Log.d(TAG, "区域截图进行中，忽略剪贴板弹窗广播")
                 return
             }
@@ -298,7 +303,7 @@ class FloatingWindowServiceNew : Service(),
     // Hover触发的剪贴板检查广播接收器
     private val hoverClipboardReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            if (isRegionCaptureInProgress) {
+            if (isRegionCaptureInProgress || isVocabularyCaptureInProgress) {
                 Log.d(TAG, "区域截图进行中，忽略悬停剪贴板广播")
                 return
             }
@@ -355,6 +360,7 @@ class FloatingWindowServiceNew : Service(),
     private var pendingScreenshot: Uri? = null
     private var pendingScreenshotBitmap: Bitmap? = null
     private var isRegionCaptureInProgress = false
+    private var isVocabularyCaptureInProgress = false
     private enum class RegionCapturePurpose { AI, DICTIONARY }
     private var regionCapturePurpose = RegionCapturePurpose.AI
     private var isAiTextSelectionPending = false
@@ -378,7 +384,9 @@ class FloatingWindowServiceNew : Service(),
         getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     }
     private val textCaptureClipboardListener = ClipboardManager.OnPrimaryClipChangedListener {
-        if ((!isDictionaryTextSelectionPending && !isAiTextSelectionPending) || isRegionCaptureInProgress) {
+        if ((!isDictionaryTextSelectionPending && !isAiTextSelectionPending) ||
+            isRegionCaptureInProgress || isVocabularyCaptureInProgress
+        ) {
             return@OnPrimaryClipChangedListener
         }
         val clip = systemClipboardManager.primaryClip ?: return@OnPrimaryClipChangedListener
@@ -572,8 +580,14 @@ class FloatingWindowServiceNew : Service(),
         dictionaryWindowManager = DictionaryWindowManager(
             context = this,
             windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager,
+            preferenceManager = preferenceManager,
             callbacks = this
         )
+        vocabularyOverlayManager = VocabularyOverlayManager(
+            context = this,
+            windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        )
+        vocabularyHintSelector = VocabularyHintSelector(VocabularyHintIndex(applicationContext))
 
         // 初始化AI配置管理器
         aiConfigurationManager = AiConfigurationManager(
@@ -705,6 +719,9 @@ class FloatingWindowServiceNew : Service(),
         }
         if (::dictionaryWindowManager.isInitialized) {
             dictionaryWindowManager.hide()
+        }
+        if (::vocabularyOverlayManager.isInitialized) {
+            vocabularyOverlayManager.hide()
         }
         chatWindowManager?.hideChatWindow()
         floatingButtonManager?.removeButton()
@@ -1204,8 +1221,10 @@ class FloatingWindowServiceNew : Service(),
         Log.e(TAG, "📸 [统一流程] 截屏成功，保存到文件系统等待FileObserver触发。尺寸: ${bitmap.width}x${bitmap.height}")
 
         // 恢复UI状态
-        floatingButtonManager.setButtonVisibility(true)
-        floatingButtonManager.restoreDefaultState()
+        if (!isVocabularyCaptureInProgress) {
+            floatingButtonManager.setButtonVisibility(true)
+            floatingButtonManager.restoreDefaultState()
+        }
 
         Log.d(TAG, "✅ [统一流程] 截屏成功，PixelCopy已保存到系统目录，等待FileObserver触发弹窗")
     }
@@ -1224,6 +1243,7 @@ class FloatingWindowServiceNew : Service(),
     private fun processScreenshot(uri: Uri) {
         Log.e(TAG, "📸 开始处理截屏: $uri")
         val isRegionCapture = isRegionCaptureInProgress
+        val isVocabularyCapture = isVocabularyCaptureInProgress
 
         // 使用协程进行异步处理，避免阻塞主线程
         serviceScope.launch(Dispatchers.IO) {
@@ -1259,6 +1279,10 @@ class FloatingWindowServiceNew : Service(),
 
                     if (isRegionCapture && regionCapturePurpose == RegionCapturePurpose.DICTIONARY) {
                         processDictionaryRegionBitmap(bitmap)
+                        return@withContext
+                    }
+                    if (isVocabularyCapture) {
+                        processVocabularyPageBitmap(bitmap)
                         return@withContext
                     }
 
@@ -1332,6 +1356,67 @@ class FloatingWindowServiceNew : Service(),
                 dictionaryWindowManager.showError(
                     getString(R.string.dictionary_ocr_failed, error.message ?: error.javaClass.simpleName)
                 )
+            }
+        )
+    }
+
+    private fun processVocabularyPageBitmap(bitmap: Bitmap) {
+        val sourceWidth = bitmap.width
+        val sourceHeight = bitmap.height
+        offlineOcrManager.recognizeWords(
+            bitmap = bitmap,
+            onSuccess = { words ->
+                if (!bitmap.isRecycled) bitmap.recycle()
+                serviceScope.launch(Dispatchers.IO) {
+                    val result = runCatching {
+                        vocabularyHintSelector.select(words, preferenceManager.getVocabularyLevel())
+                    }
+                    withContext(Dispatchers.Main) {
+                        finishVocabularyCapture()
+                        floatingButtonManager.setButtonVisibility(true)
+                        floatingButtonManager.restoreDefaultState()
+                        result.onSuccess { hints ->
+                            if (hints.isEmpty()) {
+                                Toast.makeText(
+                                    this@FloatingWindowServiceNew,
+                                    getString(R.string.vocabulary_no_hints),
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            } else {
+                                vocabularyOverlayManager.show(hints, sourceWidth, sourceHeight)
+                                Toast.makeText(
+                                    this@FloatingWindowServiceNew,
+                                    resources.getQuantityString(
+                                        R.plurals.vocabulary_hints_found,
+                                        hints.size,
+                                        hints.size
+                                    ),
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        }.onFailure { error ->
+                            Toast.makeText(
+                                this@FloatingWindowServiceNew,
+                                getString(
+                                    R.string.vocabulary_scan_failed,
+                                    error.message ?: error.javaClass.simpleName
+                                ),
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
+                }
+            },
+            onFailure = { error ->
+                if (!bitmap.isRecycled) bitmap.recycle()
+                finishVocabularyCapture()
+                floatingButtonManager.setButtonVisibility(true)
+                floatingButtonManager.restoreDefaultState()
+                Toast.makeText(
+                    this,
+                    getString(R.string.vocabulary_scan_failed, error.message ?: error.javaClass.simpleName),
+                    Toast.LENGTH_LONG
+                ).show()
             }
         )
     }
@@ -1496,6 +1581,21 @@ class FloatingWindowServiceNew : Service(),
 
     override fun onScreenshotFailed(error: String) {
         Log.e(TAG, "❌ 截屏失败: $error")
+        if (isVocabularyCaptureInProgress) {
+            if (error == getString(R.string.need_screenshot_permission)) {
+                Log.d(TAG, "生词扫描等待系统截屏授权")
+                return
+            }
+            finishVocabularyCapture()
+            floatingButtonManager.setButtonVisibility(true)
+            floatingButtonManager.restoreDefaultState()
+            Toast.makeText(
+                this,
+                getString(R.string.vocabulary_scan_failed, error),
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
         val failedPurpose = if (isRegionCaptureInProgress) regionCapturePurpose else RegionCapturePurpose.AI
 
         // 请求系统截屏授权是区域截图流程的中间状态，不是失败终点。
@@ -1553,6 +1653,12 @@ class FloatingWindowServiceNew : Service(),
 
     override fun onScreenshotCancelled() {
         Log.e(TAG, "📸 截屏已取消")
+        if (isVocabularyCaptureInProgress) {
+            finishVocabularyCapture()
+            floatingButtonManager.setButtonVisibility(true)
+            floatingButtonManager.restoreDefaultState()
+            return
+        }
         val cancelledPurpose = if (isRegionCaptureInProgress) regionCapturePurpose else RegionCapturePurpose.AI
         finishRegionCapture()
         // 恢复界面显示
@@ -1571,7 +1677,9 @@ class FloatingWindowServiceNew : Service(),
 
     override fun onPermissionRequesting() {
         Log.e(TAG, "🔐 正在请求截屏权限...")
-        if (isRegionCaptureInProgress && regionCapturePurpose == RegionCapturePurpose.DICTIONARY) {
+        if (isVocabularyCaptureInProgress ||
+            (isRegionCaptureInProgress && regionCapturePurpose == RegionCapturePurpose.DICTIONARY)
+        ) {
             Toast.makeText(this, getString(R.string.requesting_screenshot_permission), Toast.LENGTH_SHORT).show()
         } else {
             chatWindowManager.showChatWindow()
@@ -1581,10 +1689,17 @@ class FloatingWindowServiceNew : Service(),
 
     override fun onPermissionGranted() {
         Log.e(TAG, "✅ 截屏权限已授予")
-        // 隐藏加载消息
-        chatWindowManager.removeLastMessage()
-
-        if (isRegionCaptureInProgress) {
+        if (isVocabularyCaptureInProgress) {
+            chatWindowManager.hideChatWindow()
+            dictionaryWindowManager.hide()
+            vocabularyOverlayManager.hide()
+            floatingButtonManager.setButtonVisibility(false)
+            serviceScope.launch {
+                delay(350)
+                screenshotManager.performScreenshot()
+            }
+        } else if (isRegionCaptureInProgress) {
+            chatWindowManager.removeLastMessage()
             // 授权界面返回后先移除所有 ReadAssist 覆盖层，再按已保存的区域截屏。
             chatWindowManager.hideChatWindow()
             floatingButtonManager.setButtonVisibility(false)
@@ -1593,6 +1708,7 @@ class FloatingWindowServiceNew : Service(),
                 screenshotManager.performScreenshot()
             }
         } else {
+            chatWindowManager.removeLastMessage()
             floatingButtonManager.setButtonVisibility(true)
             floatingButtonManager.restoreDefaultState()
         }
@@ -1600,6 +1716,13 @@ class FloatingWindowServiceNew : Service(),
 
     override fun onPermissionDenied() {
         Log.e(TAG, "❌ 截屏权限被拒绝")
+        if (isVocabularyCaptureInProgress) {
+            finishVocabularyCapture()
+            floatingButtonManager.setButtonVisibility(true)
+            floatingButtonManager.restoreDefaultState()
+            Toast.makeText(this, getString(R.string.screenshot_permission_not_granted), Toast.LENGTH_LONG).show()
+            return
+        }
         val deniedPurpose = if (isRegionCaptureInProgress) regionCapturePurpose else RegionCapturePurpose.AI
         finishRegionCapture()
         // 隐藏加载消息
@@ -1801,7 +1924,7 @@ class FloatingWindowServiceNew : Service(),
     }
 
     private fun startRegionCapture(purpose: RegionCapturePurpose) {
-        if (isRegionCaptureInProgress) return
+        if (isRegionCaptureInProgress || isVocabularyCaptureInProgress) return
         regionCapturePurpose = purpose
         isRegionCaptureInProgress = true
         isAiTextSelectionPending = false
@@ -1960,6 +2083,7 @@ class FloatingWindowServiceNew : Service(),
         when (preferenceManager.getDictionaryCaptureMode()) {
             DictionaryCaptureMode.REGION_OCR -> startDictionaryRegionOcr()
             DictionaryCaptureMode.TEXT_SELECTION -> startDictionaryTextSelection()
+            DictionaryCaptureMode.VOCABULARY_HINTS -> startVocabularyPageScan()
         }
     }
 
@@ -1971,8 +2095,18 @@ class FloatingWindowServiceNew : Service(),
         startDictionaryRegionOcr()
     }
 
+    override fun onVocabularyHintsRequested() {
+        startVocabularyPageScan()
+    }
+
+    override fun onVocabularyHintsClearRequested() {
+        vocabularyOverlayManager.hide()
+        Toast.makeText(this, getString(R.string.vocabulary_hints_cleared), Toast.LENGTH_SHORT).show()
+    }
+
     private fun startDictionaryTextSelection() {
         preferenceManager.setDictionaryCaptureMode(DictionaryCaptureMode.TEXT_SELECTION)
+        floatingButtonManager.refreshDictionaryModeLabel()
         isAiTextSelectionPending = false
         aiCopySignalSeen = false
         pendingAiClipboardRead?.let(clipboardAccessHandler::removeCallbacks)
@@ -2066,7 +2200,34 @@ class FloatingWindowServiceNew : Service(),
 
     private fun startDictionaryRegionOcr() {
         preferenceManager.setDictionaryCaptureMode(DictionaryCaptureMode.REGION_OCR)
+        floatingButtonManager.refreshDictionaryModeLabel()
         startRegionCapture(RegionCapturePurpose.DICTIONARY)
+    }
+
+    private fun startVocabularyPageScan() {
+        if (isRegionCaptureInProgress || isVocabularyCaptureInProgress) return
+        preferenceManager.setDictionaryCaptureMode(DictionaryCaptureMode.VOCABULARY_HINTS)
+        floatingButtonManager.refreshDictionaryModeLabel()
+        isVocabularyCaptureInProgress = true
+        isAiTextSelectionPending = false
+        aiCopySignalSeen = false
+        aiSelectionStartedAt = 0L
+        pendingAiClipboardRead?.let(clipboardAccessHandler::removeCallbacks)
+        pendingAiClipboardRead = null
+        isDictionaryTextSelectionPending = false
+        pendingDictionaryClipboardRead?.let(clipboardAccessHandler::removeCallbacks)
+        pendingDictionaryClipboardRead = null
+        floatingButtonManager.setDictionaryWaiting(false)
+        vocabularyOverlayManager.hide()
+        screenshotManager.startMonitoring()
+        chatWindowManager.hideChatWindow()
+        dictionaryWindowManager.hide()
+        floatingButtonManager.setButtonVisibility(false)
+        Toast.makeText(this, getString(R.string.vocabulary_scanning), Toast.LENGTH_SHORT).show()
+        serviceScope.launch {
+            delay(350)
+            screenshotManager.performScreenshot()
+        }
     }
 
     override fun onDictionaryLookupRequested(query: String) {
@@ -2253,6 +2414,12 @@ class FloatingWindowServiceNew : Service(),
         if (!isRegionCaptureInProgress) return
 
         isRegionCaptureInProgress = false
+        screenshotManager.stopMonitoring()
+    }
+
+    private fun finishVocabularyCapture() {
+        if (!isVocabularyCaptureInProgress) return
+        isVocabularyCaptureInProgress = false
         screenshotManager.stopMonitoring()
     }
 

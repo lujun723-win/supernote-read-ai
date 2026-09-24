@@ -33,4 +33,36 @@ class OfflineOcrManager {
                 onFailure(error)
             }
     }
+
+    fun recognizeWords(
+        bitmap: Bitmap,
+        onSuccess: (List<RecognizedWord>) -> Unit,
+        onFailure: (Throwable) -> Unit
+    ) {
+        val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+        recognizer.process(InputImage.fromBitmap(bitmap, 0))
+            .addOnSuccessListener { result ->
+                recognizer.close()
+                val words = result.textBlocks.flatMap { block ->
+                    block.lines.flatMap { line ->
+                        line.elements.mapNotNull { element ->
+                            element.boundingBox?.let { bounds ->
+                                RecognizedWord(
+                                    text = element.text,
+                                    left = bounds.left,
+                                    top = bounds.top,
+                                    right = bounds.right,
+                                    bottom = bounds.bottom
+                                )
+                            }
+                        }
+                    }
+                }
+                onSuccess(words)
+            }
+            .addOnFailureListener { error ->
+                recognizer.close()
+                onFailure(error)
+            }
+    }
 }

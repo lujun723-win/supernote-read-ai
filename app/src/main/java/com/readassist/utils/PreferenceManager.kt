@@ -11,6 +11,7 @@ import com.readassist.model.AiPlatform
 import com.readassist.model.AiModel
 import com.readassist.model.AiCaptureMode
 import com.readassist.model.DictionaryCaptureMode
+import com.readassist.model.VocabularyLevel
 import com.readassist.model.OcrLanguage
 import java.security.GeneralSecurityException
 import java.io.IOException
@@ -43,6 +44,7 @@ class PreferenceManager(private val context: Context) {
         private const val KEY_AI_CAPTURE_MODE = "ai_capture_mode"
         private const val KEY_DICTIONARY_CAPTURE_MODE = "dictionary_capture_mode"
         private const val KEY_OCR_LANGUAGE = "dictionary_ocr_language"
+        private const val KEY_VOCABULARY_LEVEL = "vocabulary_hint_level"
 
         // 默认值
         // 默认提示词将根据系统语言动态获取
@@ -446,6 +448,15 @@ class PreferenceManager(private val context: Context) {
     fun getOcrLanguage(): OcrLanguage = OcrLanguage.fromStoredValue(
         normalPrefs.getString(KEY_OCR_LANGUAGE, OcrLanguage.CHINESE.storedValue)
             ?: OcrLanguage.CHINESE.storedValue
+    )
+
+    fun setVocabularyLevel(level: VocabularyLevel) {
+        normalPrefs.edit().putString(KEY_VOCABULARY_LEVEL, level.storedValue).apply()
+    }
+
+    fun getVocabularyLevel(): VocabularyLevel = VocabularyLevel.fromStoredValue(
+        normalPrefs.getString(KEY_VOCABULARY_LEVEL, VocabularyLevel.SENIOR_HIGH.storedValue)
+            ?: VocabularyLevel.SENIOR_HIGH.storedValue
     )
 
     /**

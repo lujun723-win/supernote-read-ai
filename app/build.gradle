@@ -13,8 +13,8 @@ android {
         applicationId "com.readassist"
         minSdk 23  // ML Kit 离线文字识别要求 Android 6.0+
         targetSdk 35
-        versionCode 43
-        versionName "1.14.8-supernote-selection-fix"
+        versionCode 46
+        versionName "1.15.2-vocabulary-hints"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 

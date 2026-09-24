@@ -13,6 +13,7 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.Button
 import com.readassist.R
+import com.readassist.model.DictionaryCaptureMode
 import kotlin.math.pow
 import kotlin.math.sqrt
 
@@ -73,6 +74,7 @@ class FloatingButtonManager(
             floatingButton = LayoutInflater.from(context).inflate(R.layout.floating_button, null)
             aiButton = floatingButton?.findViewById(R.id.aiFloatingButton)
             dictionaryButton = floatingButton?.findViewById(R.id.translateFloatingButton)
+            refreshDictionaryModeLabel()
             Log.e(TAG, "floatingButton inflated")
 
             // 动态设置按钮宽高（防止布局文件覆盖）
@@ -313,7 +315,7 @@ class FloatingButtonManager(
 
                 // 不再设置背景色，使用XML中定义的白色背景和圆圈边框
                 aiButton?.text = "AI"
-                dictionaryButton?.text = context.getString(R.string.dictionary_short)
+                refreshDictionaryModeLabel()
 
                 // 尝试产生振动反馈（如果有振动权限）
                 if (context.checkSelfPermission(android.Manifest.permission.VIBRATE) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
@@ -351,7 +353,7 @@ class FloatingButtonManager(
 
                 // 不再设置背景色，使用XML中定义的白色背景和圆圈边框
                 aiButton?.text = "AI"
-                dictionaryButton?.text = context.getString(R.string.dictionary_short)
+                refreshDictionaryModeLabel()
 
                 Log.e(TAG, "🔄 按钮已恢复默认状态")
             }
@@ -489,8 +491,20 @@ class FloatingButtonManager(
     }
 
     fun setDictionaryWaiting(waiting: Boolean) {
+        if (waiting) {
+            dictionaryButton?.text = context.getString(R.string.dictionary_waiting_short)
+        } else {
+            refreshDictionaryModeLabel()
+        }
+    }
+
+    fun refreshDictionaryModeLabel() {
         dictionaryButton?.text = context.getString(
-            if (waiting) R.string.dictionary_waiting_short else R.string.dictionary_short
+            when (preferenceManager.getDictionaryCaptureMode()) {
+                DictionaryCaptureMode.TEXT_SELECTION -> R.string.dictionary_waiting_short
+                DictionaryCaptureMode.REGION_OCR -> R.string.dictionary_region_short
+                DictionaryCaptureMode.VOCABULARY_HINTS -> R.string.dictionary_vocabulary_short
+            }
         )
     }
 

@@ -17,6 +17,7 @@ import com.readassist.model.AiPlatform
 import com.readassist.model.AiModel
 import com.readassist.model.DictionaryCaptureMode
 import com.readassist.model.OcrLanguage
+import com.readassist.model.VocabularyLevel
 import com.readassist.utils.LanguageManager
 import com.readassist.dictionary.OfflineDictionaryManager
 import androidx.activity.result.contract.ActivityResultContracts
@@ -346,7 +347,8 @@ class SettingsActivity : BaseActivity() {
     private fun setupDictionarySettings() {
         val captureModes = listOf(
             DictionaryCaptureMode.REGION_OCR to getString(R.string.dictionary_capture_region),
-            DictionaryCaptureMode.TEXT_SELECTION to getString(R.string.dictionary_capture_text)
+            DictionaryCaptureMode.TEXT_SELECTION to getString(R.string.dictionary_capture_text),
+            DictionaryCaptureMode.VOCABULARY_HINTS to getString(R.string.dictionary_capture_vocabulary)
         )
         binding.dictionaryCaptureModeSpinner.adapter = ArrayAdapter(
             this,
@@ -379,6 +381,31 @@ class SettingsActivity : BaseActivity() {
         binding.ocrLanguageSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 app.preferenceManager.setOcrLanguage(languages[position].first)
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+        }
+
+        val vocabularyLevels = listOf(
+            VocabularyLevel.PRIMARY to getString(R.string.vocabulary_level_primary),
+            VocabularyLevel.JUNIOR_HIGH to getString(R.string.vocabulary_level_junior_high),
+            VocabularyLevel.SENIOR_HIGH to getString(R.string.vocabulary_level_senior_high),
+            VocabularyLevel.CET4 to getString(R.string.vocabulary_level_cet4),
+            VocabularyLevel.CET6 to getString(R.string.vocabulary_level_cet6),
+            VocabularyLevel.POSTGRADUATE to getString(R.string.vocabulary_level_postgraduate),
+            VocabularyLevel.IELTS_TOEFL to getString(R.string.vocabulary_level_ielts_toefl)
+        )
+        binding.vocabularyLevelSpinner.adapter = ArrayAdapter(
+            this,
+            R.layout.spinner_item_small,
+            vocabularyLevels.map { it.second }
+        ).apply { setDropDownViewResource(R.layout.spinner_item_small) }
+        binding.vocabularyLevelSpinner.setSelection(
+            vocabularyLevels.indexOfFirst { it.first == app.preferenceManager.getVocabularyLevel() }
+                .coerceAtLeast(0)
+        )
+        binding.vocabularyLevelSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                app.preferenceManager.setVocabularyLevel(vocabularyLevels[position].first)
             }
             override fun onNothingSelected(parent: AdapterView<*>?) = Unit
         }

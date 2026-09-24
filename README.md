@@ -6,18 +6,18 @@
 >
 > 本项目基于 [James-Zhu-CA/ReadAssist](https://github.com/James-Zhu-CA/ReadAssist) 进行二次修改，原项目采用 MIT License。本仓库不是原项目的官方版本，也不代表原作者立场；原项目版权声明和 MIT 许可证保留在 [LICENSE](LICENSE) 中。
 
-当前版本：`1.14.8-supernote-selection-fix`
+当前源码版本：`1.15.2-vocabulary-hints`。最新公开 Release 为 1.15.2。
 
 ## 下载选择
 
-从 [GitHub Releases](https://github.com/lujun723-win/supernote-read-ai/releases) 下载 1.14.8；不要继续使用 1.14.7，旧版的禁写区实现会干扰 Supernote 文字选择。
+从 [GitHub Releases](https://github.com/lujun723-win/supernote-read-ai/releases) 下载 1.15.2；不要继续使用 1.14.7，旧版的禁写区实现会干扰 Supernote 文字选择。
 
 | 文件 | 适用情况 |
 | --- | --- |
-| `ReadAssist-v1.14.8-supernote-selection-fix-deepseekBundled.apk` | 推荐。内置 3,402,564 词的 ECDICT，安装后在设置页一键部署 |
-| `ReadAssist-v1.14.8-supernote-selection-fix-deepseek.apk` | 体积较小，不带词库，需要自行导入 StarDict |
+| `ReadAssist-v1.15.2-vocabulary-hints-deepseekBundled.apk` | 推荐。内置 3,402,564 词的 ECDICT，安装后在设置页一键部署 |
+| `ReadAssist-v1.15.2-vocabulary-hints-deepseek.apk` | 体积较小，不带完整词库，需要自行导入 StarDict |
 
-两个 1.14.8 APK 的应用 ID 相同，可以互相覆盖安装；不要同时安装。发布包使用 Android 调试证书签名，仅适合侧载使用。此前 1.14.7 的签名与本版不同，无法直接覆盖安装；卸载旧版会清除其应用内设置、词典部署和历史记录。请先导出需要保留的阅读记录，再决定是否卸载旧版。
+两个 1.15.2 APK 的应用 ID 相同，可以互相覆盖安装；不要同时安装。发布包继续使用 1.14.8 的 Android 调试证书签名，可从 1.14.8 直接覆盖升级，仅适合侧载使用。此前 1.14.7 的签名与本版不同，无法直接覆盖安装；卸载旧版会清除其应用内设置、词典部署和历史记录。请先导出需要保留的阅读记录，再决定是否卸载旧版。
 
 ## 主要修改
 
@@ -27,6 +27,8 @@
 - 文字选择模式会等待本次新复制内容；复制完成后自动打开 AI 窗口并只导入一次。没有新复制内容时不会弹窗。
 - 增加适配 Supernote 的区域截图流程：双击悬浮图标后直接圈选，截图完成后进入 AI 对话。
 - 增加离线 StarDict 字典：支持 `.ifo`、`.idx` / `.idx.gz` 和 `.dict` / `.dict.dz`；直接读取原生索引，不再把全部词条写入 SQLite。
+- 增加离线整页生词提示：可选小学、初中、高中、四级、六级、考研或雅思/托福起点，当前页最多标注 20 个更难单词。
+- 词典的三种模式为“选择文本 / 圈选 OCR / 生词提示”，悬浮按钮分别显示“取 / 圈 / 译”，双击执行当前模式。
 - `翻`按钮支持手动输入查词；先复制文字再单击 `翻`，剪贴板文字会自动填入查词框，但不会自动发起查询。查词窗口顶部可直接选择“选择文本”或“圈选 OCR”，双击则沿用上次选择的方式。
 - 中英文 OCR 模型随 APK 安装，圈选识别和词典查询都在设备本地完成。
 - 词典圈选 OCR 按真实手写圈的形状保留像素，圈外区域填白；利用文字间的完整空白分段，并清除与圈选边界相交的首尾残片。同时允许单个单词大小的选区，并将 OCR 查询词统一为小写。AI 圈选仍保留上下文扩边。
@@ -74,10 +76,15 @@ Supernote 当前固件没有向第三方开放“切换到文字选择工具”�
 
 1. 使用轻量版时，在设置页选择“导入 StarDict 文件夹”。文件夹内必须只有一个 `.ifo`，并包含同名索引和释义文件。
    导入时只复制词典并建立小型稀疏索引；完成提示出现后再使用 `翻`。当前不支持带 `.syn` 同义词文件的词典。
-2. 单击 `翻`，在窗口顶部选择“选择文本”或“圈选 OCR”；也可直接输入词语查词。
-3. 双击 `翻` 会沿用上次选择的取词方式：
+2. 单击词典悬浮按钮，在窗口顶部选择“选择文本”、“圈选 OCR”或“生词提示”；也可直接输入词语查词。
+3. 悬浮按钮会根据当前模式显示“取 / 圈 / 译”，双击会沿用当前方式：
    - “圈选区域并离线识别”：用笔圈住一个词或短语，识别后自动查词。
    - “等待选择或复制文字”：随后在阅读器中选择并复制文字，下一段选中文本会自动查词。
+   - “生词提示”：识别当前整页，按设置的词汇级别在原词上方显示简短中文释义；右下角可随时隐藏或显示，顶部“清除”可彻底移除标注。
+
+生词分级优先使用 ECDICT 考试标签，无标签常用词再使用词频分档。识别、分级和释义全部在本地完成，不会调用 AI。应用不监听翻页；翻页后需再次双击“译”更新标注。
+
+为给中文释义留出空间，建议在 Supernote 阅读器中选择最宽的行间距；需要只看原文时，可点右下角“隐藏”，无需重新识别。
 
 当前版本先支持 StarDict；MDict（`.mdx` / `.mdd`）尚未接入。
 
@@ -121,14 +128,14 @@ Supernote 当前固件没有向第三方开放“切换到文字选择工具”�
 生成的 APK 位于：
 
 ```text
-app/build/outputs/apk/deepseek/ReadAssist-v1.14.8-supernote-selection-fix-deepseek.apk
-app/build/outputs/apk/deepseekBundled/ReadAssist-v1.14.8-supernote-selection-fix-deepseekBundled.apk
+app/build/outputs/apk/deepseek/ReadAssist-v1.15.0-vocabulary-hints-deepseek.apk
+app/build/outputs/apk/deepseekBundled/ReadAssist-v1.15.0-vocabulary-hints-deepseekBundled.apk
 ```
 
 通过 ADB 安装：
 
 ```bash
-adb install -r app/build/outputs/apk/deepseekBundled/ReadAssist-v1.14.8-supernote-selection-fix-deepseekBundled.apk
+adb install -r app/build/outputs/apk/deepseekBundled/ReadAssist-v1.15.0-vocabulary-hints-deepseekBundled.apk
 ```
 
 `deepseek` 和 `deepseekBundled` 使用相同应用 ID `com.readassist.deepseek`，同一证书签名时可互相覆盖升级。1.14.7 与本版的证书不同，不能用上面的命令直接覆盖。公开仓库不包含签名密钥；自行构建时生成的调试证书也可能与 Releases 中的证书不同。

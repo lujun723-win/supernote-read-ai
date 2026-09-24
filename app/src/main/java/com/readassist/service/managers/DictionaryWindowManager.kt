@@ -14,16 +14,21 @@ import android.widget.FrameLayout
 import android.widget.TextView
 import com.readassist.R
 import com.readassist.dictionary.DictionaryDefinition
+import com.readassist.model.DictionaryCaptureMode
+import com.readassist.utils.PreferenceManager
 
 class DictionaryWindowManager(
     private val context: Context,
     private val windowManager: WindowManager,
+    private val preferenceManager: PreferenceManager,
     private val callbacks: Callbacks
 ) {
     interface Callbacks {
         fun onDictionaryLookupRequested(query: String)
         fun onDictionaryTextSelectionRequested()
         fun onDictionaryRegionOcrRequested()
+        fun onVocabularyHintsRequested()
+        fun onVocabularyHintsClearRequested()
     }
 
     private var window: View? = null
@@ -54,6 +59,12 @@ class DictionaryWindowManager(
         val closeButton: Button = content.findViewById(R.id.dictionaryCloseButton)
         val textSelectionButton: Button = content.findViewById(R.id.dictionaryTextSelectionButton)
         val regionOcrButton: Button = content.findViewById(R.id.dictionaryRegionOcrButton)
+        val vocabularyButton: Button = content.findViewById(R.id.dictionaryVocabularyButton)
+        val clearHintsButton: Button = content.findViewById(R.id.dictionaryClearHintsButton)
+        val currentMode = preferenceManager.getDictionaryCaptureMode()
+        textSelectionButton.setBackgroundColor(modeColor(currentMode == DictionaryCaptureMode.TEXT_SELECTION))
+        regionOcrButton.setBackgroundColor(modeColor(currentMode == DictionaryCaptureMode.REGION_OCR))
+        vocabularyButton.setBackgroundColor(modeColor(currentMode == DictionaryCaptureMode.VOCABULARY_HINTS))
         val submit = {
             val value = queryInput?.text?.toString()?.trim().orEmpty()
             if (value.isNotEmpty()) callbacks.onDictionaryLookupRequested(value)
@@ -61,6 +72,8 @@ class DictionaryWindowManager(
         searchButton.setOnClickListener { submit() }
         textSelectionButton.setOnClickListener { callbacks.onDictionaryTextSelectionRequested() }
         regionOcrButton.setOnClickListener { callbacks.onDictionaryRegionOcrRequested() }
+        vocabularyButton.setOnClickListener { callbacks.onVocabularyHintsRequested() }
+        clearHintsButton.setOnClickListener { callbacks.onVocabularyHintsClearRequested() }
         queryInput?.setOnEditorActionListener { _, _, _ -> submit(); true }
         closeButton.setOnClickListener { hide() }
         queryInput?.setText(query)
@@ -141,4 +154,7 @@ class DictionaryWindowManager(
         statusText = null
         resultText = null
     }
+
+    private fun modeColor(selected: Boolean): Int =
+        if (selected) 0xFFD6E9F8.toInt() else 0xFFF0F0F0.toInt()
 }
